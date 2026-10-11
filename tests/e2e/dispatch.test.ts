@@ -175,6 +175,8 @@ describe("nexus_dispatch 어댑터", () => {
     paperclip.issues.set("NEX-1", { id: "NEX-1", title: "목록 화면 버그 수정", companyId: "co-1", status: "in_progress" });
     const handoff = await executeDispatch(ctx({}, { taskId: "NEX-1", wakeReason: "finish_successful_run_handoff" }), deps);
     expect(handoff.exitCode).toBe(0);
+    const children = await executeDispatch(ctx({}, { taskId: "NEX-1", wakeReason: "issue_children_completed" }), deps);
+    expect(children.exitCode).toBe(0);
 
     expect(readLog(process.env.FAKE_CLAUDE_LOG!)).toHaveLength(0);
     expect(readLog(process.env.FAKE_OPENCODE_LOG!)).toHaveLength(0);

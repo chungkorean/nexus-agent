@@ -54,6 +54,7 @@ export async function executeDispatch(ctx: AdapterExecutionContext, deps: Dispat
 
   // 이미 끝났거나 사람 손을 기다리는 이슈, 또는 방금 끝난 실행을 "마무리하라"고 다시 깨운 경우에는
   // 같은 작업을 처음부터 반복하지 않는다.
+  await log(`이슈 ${issue.identifier ?? issue.id} 상태 ${issue.status ?? "알 수 없음"}, 깨운 이유 ${String(ctx.context.wakeReason ?? "알 수 없음")}`);
   const skip = skipReason(issue.status, ctx.context.wakeReason);
   if (skip) {
     await log(`${skip} 이번에는 실행하지 않아요.`);
@@ -200,11 +201,18 @@ export function reportComment(c: Classification, attempts: Attempt[]): string {
 }
 
 const CLOSED_STATUSES: Record<string, string> = { done: "완료", cancelled: "취소", blocked: "막힘", in_review: "검토 중" };
-const REPEAT_WAKES = new Set(["finish_successful_run_handoff"]);
+/**
+ * Paperclip이 작업 지시가 아니라 뒷정리를 위해 깨우는 경우. Nexus는 하위 이슈까지 한 실행 안에서 끝내므로
+ * 여기서 다시 실행하면 같은 작업을 처음부터 반복하게 된다.
+ * - finish_successful_run_handoff: 성공했는데 이슈가 열려 있어 마무리하라는 알림
+ * - issue_children_completed: Nexus가 만든 하위 이슈가 모두 끝났다는 알림
+ * - run_liveness_continuation, issue_review_path_lost: 끝난 실행을 이어 가라는 복구 알림
+ */
+const REPEAT_WAKES = new Set(["finish_successful_run_handoff", "issue_children_completed", "run_liveness_continuation", "issue_review_path_lost"]);
 
 export function skipReason(status: string | null | undefined, wakeReason: unknown): string | null {
   if (status && CLOSED_STATUSES[status]) return `이슈가 이미 '${CLOSED_STATUSES[status]}' 상태예요.`;
-  if (typeof wakeReason === "string" && REPEAT_WAKES.has(wakeReason)) return "방금 끝난 실행을 마무리하라는 알림이에요.";
+  if (typeof wakeReason === "string" && REPEAT_WAKES.has(wakeReason)) return `작업 지시가 아니라 뒷정리 알림(${wakeReason})이에요.`;
   return null;
 }
 
