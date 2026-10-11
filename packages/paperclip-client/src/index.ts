@@ -70,6 +70,11 @@ export class PaperclipClient {
     return this.request("POST", `/api/issues/${encodeURIComponent(issueId)}/comments`, { body });
   }
 
+  /** 최근 댓글부터 limit개 */
+  listComments(issueId: string, limit = 30): Promise<PaperclipComment[]> {
+    return this.request("GET", `/api/issues/${encodeURIComponent(issueId)}/comments?order=desc&limit=${limit}`);
+  }
+
   updateIssue(issueId: string, patch: { status?: string; comment?: string }): Promise<unknown> {
     return this.request("PATCH", `/api/issues/${encodeURIComponent(issueId)}`, patch);
   }
@@ -77,6 +82,15 @@ export class PaperclipClient {
   createIssue(companyId: string, input: CreateIssueInput): Promise<PaperclipIssue> {
     return this.request("POST", `/api/companies/${encodeURIComponent(companyId)}/issues`, input);
   }
+}
+
+export interface PaperclipComment {
+  id: string;
+  body: string;
+  authorType?: string | null;
+  authorAgentId?: string | null;
+  authorUserId?: string | null;
+  createdAt?: string;
 }
 
 export function labelNames(issue: PaperclipIssue): string[] {

@@ -12,7 +12,7 @@ export interface RecordedRequest {
 /** 이슈 조회, 댓글, 상태 변경, 하위 이슈 생성만 흉내 내는 가짜 Paperclip API */
 export class FakePaperclip {
   readonly issues = new Map<string, PaperclipIssue>();
-  readonly comments: Array<{ issueId: string; body: string }> = [];
+  readonly comments: Array<{ issueId: string; body: string; authorType?: "agent" | "user" }> = [];
   readonly created: Array<{ companyId: string; input: Record<string, unknown> }> = [];
   readonly requests: RecordedRequest[] = [];
   private server?: Server;
@@ -41,7 +41,15 @@ export class FakePaperclip {
         Object.assign(issue, { status: (body as { status?: string }).status ?? issue.status });
         return send(200, issue);
       }
-      m = path.match(/^\/api\/issues\/([^/]+)\/comments$/);
+      m = path.match(/^\/api\/issues\/([^/?]+)\/comments(?:\?.*)?$/);
+      if (m && req.method === "GET") {
+        const id = decodeURIComponent(m[1]!);
+        const list = this.comments
+          .map((c, i) => ({ id: `c${i + 1}`, issueId: c.issueId, body: c.body, authorType: c.authorType ?? "agent" }))
+          .filter((c) => c.issueId === id)
+          .reverse();
+        return send(200, list);
+      }
       if (m && req.method === "POST") {
         this.comments.push({ issueId: decodeURIComponent(m[1]!), body: (body as { body: string }).body });
         return send(201, { id: `c${this.comments.length}` });

@@ -166,6 +166,25 @@ describe("nexus_dispatch 어댑터", () => {
     expect(paperclip.issues.get("NEX-1")!.status).toBe("in_progress");
   });
 
+  it("이미 완료한 이슈가 다시 열려도 사람 댓글이 없으면 다시 실행하지 않는다", async () => {
+    paperclip.issues.set("NEX-1", { id: "NEX-1", title: "목록 화면 버그 수정", companyId: "co-1", status: "in_progress" });
+    const first = await executeDispatch(ctx(), deps);
+    expect(first.exitCode).toBe(0);
+    expect(readLog(process.env.FAKE_CLAUDE_LOG!)).toHaveLength(1);
+
+    paperclip.issues.get("NEX-1")!.status = "todo"; // Paperclip이 다시 열었다고 치자
+    const again = await executeDispatch(ctx({}, { taskId: "NEX-1", wakeReason: "issue_assigned" }), deps);
+    expect(again.exitCode).toBe(0);
+    expect(readLog(process.env.FAKE_CLAUDE_LOG!)).toHaveLength(1);
+    expect(paperclip.issues.get("NEX-1")!.status).toBe("done");
+
+    // 사람이 댓글로 다시 요청하면 실행한다
+    paperclip.comments.push({ issueId: "NEX-1", body: "한 번 더 해 주세요", authorType: "user" });
+    paperclip.issues.get("NEX-1")!.status = "todo";
+    await executeDispatch(ctx({}, { taskId: "NEX-1", wakeReason: "issue_commented" }), deps);
+    expect(readLog(process.env.FAKE_CLAUDE_LOG!)).toHaveLength(2);
+  });
+
   it("이미 끝난 이슈나 마무리 확인 하트비트에서는 다시 실행하지 않는다", async () => {
     paperclip.issues.set("NEX-1", { id: "NEX-1", title: "목록 화면 버그 수정", companyId: "co-1", status: "done" });
     const closed = await executeDispatch(ctx(), deps);

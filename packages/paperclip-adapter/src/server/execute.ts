@@ -2,7 +2,7 @@ import { existsSync, statSync } from "node:fs";
 import { buildPrompt, classify, planRoutes, shouldPlan } from "@nexus/core";
 import { ClaudeCodeExecutor } from "@nexus/executor-claude-code";
 import { OpenCodeExecutor } from "@nexus/executor-opencode";
-import { PaperclipClient, labelNames, type PaperclipIssue } from "@nexus/paperclip-client";
+import { PaperclipClient, labelNames, type PaperclipComment, type PaperclipIssue } from "@nexus/paperclip-client";
 import { AccountState, loadConfig, type Classification, type Engine, type Executor, type NexusConfig } from "@nexus/shared";
 import type { AdapterExecutionContext, AdapterExecutionResult } from "../adapter-types.ts";
 import { ADAPTER_TYPE, bundledConfigDir, readSettings, type DispatchSettings } from "../settings.ts";
@@ -59,6 +59,12 @@ export async function executeDispatch(ctx: AdapterExecutionContext, deps: Dispat
   if (skip) {
     await log(`${skip} 이번에는 실행하지 않아요.`);
     return ok({ summary: skip });
+  }
+  if (await alreadyFinished(client, issue.id)) {
+    const message = "이 이슈는 Nexus가 이미 완료했고, 그 뒤로 사람이 남긴 댓글이 없어요.";
+    await log(`${message} 이번에는 실행하지 않아요. 다시 실행하려면 이슈에 댓글로 요청을 남겨 주세요.`);
+    await finishIssue(client, issue.id, true, { markDoneOnSuccess: settings.markDoneOnSuccess, signal: ctx.signal }, log);
+    return ok({ summary: message });
   }
 
   const classification = classify(
@@ -215,6 +221,28 @@ export function skipReason(status: string | null | undefined, wakeReason: unknow
   if (typeof wakeReason === "string" && REPEAT_WAKES.has(wakeReason)) return `작업 지시가 아니라 뒷정리 알림(${wakeReason})이에요.`;
   return null;
 }
+
+/**
+ * 깨운 이유와 상관없이, 가장 최근 Nexus 결과가 "완료"이고 그 뒤로 사람 댓글이 없으면 같은 일을 다시 하지 않는다.
+ * Paperclip이 어떤 이유로든 이슈를 다시 열어 깨워도 중복 실행을 막는 마지막 안전장치다.
+ */
+export async function alreadyFinished(client: PaperclipClient, issueId: string): Promise<boolean> {
+  let comments: PaperclipComment[];
+  try {
+    comments = await client.listComments(issueId);
+  } catch {
+    return false;
+  }
+  if (!Array.isArray(comments)) return false;
+  for (const c of comments) {
+    const fromUser = c.authorType === "user" || (Boolean(c.authorUserId) && !c.authorAgentId);
+    if (fromUser) return false;
+    if (typeof c.body === "string" && c.body.startsWith(RESULT_DONE)) return true;
+  }
+  return false;
+}
+
+const RESULT_DONE = "### Nexus 실행 결과: 완료";
 
 function ok(extra: Partial<AdapterExecutionResult>): AdapterExecutionResult {
   return { exitCode: 0, signal: null, timedOut: false, ...extra };
