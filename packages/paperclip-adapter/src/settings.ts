@@ -16,6 +16,8 @@ export interface DispatchSettings {
   claudeCommand: CommandSpec;
   timeoutSec: number;
   markDoneOnSuccess: boolean;
+  /** 하위 작업이 모두 성공하면 브랜치를 작업 폴더의 현재 브랜치에 자동으로 합칠지 */
+  autoMerge: boolean;
   /** 계정 한도 상태 파일을 두는 폴더 */
   stateDir: string;
   /** 계정 로그인 폴더의 상위 폴더 (accounts.yaml에서 dir을 비운 계정) */
@@ -53,6 +55,7 @@ export function readSettings(config: Record<string, unknown>, context: Record<st
     claudeCommand: command(config.claudeCommand, "claude"),
     timeoutSec: Number.isFinite(timeout) && timeout > 0 ? timeout : 1800,
     markDoneOnSuccess: !(config.markDoneOnSuccess === false || config.markDoneOnSuccess === "false"),
+    autoMerge: !(config.autoMerge === false || config.autoMerge === "false"),
     stateDir: str(config.stateDir) ?? defaultStateDir(),
     accountsDir: str(config.accountsDir) ?? defaultAccountsDir(),
     worktreeRoot: str(config.worktreeRoot) ?? defaultWorktreeRoot(),

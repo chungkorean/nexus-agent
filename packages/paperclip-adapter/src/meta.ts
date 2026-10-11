@@ -26,6 +26,7 @@ export const agentConfigurationDoc = `# nexus_dispatch 에이전트 설정
 - stateDir / accountsDir / worktreeRoot: 계정 한도 상태, 계정 로그인 폴더, 병렬 실행용 작업 폴더. 기본값은 %LOCALAPPDATA%\\Nexus 아래
 - opencodeCommand / claudeCommand: 실행 파일 경로 (기본값 opencode / claude)
 - timeoutSec: 실행 한 번(하위 작업 하나)의 제한 시간(초), 기본값 1800
+- autoMerge: 하위 작업이 모두 성공하면 브랜치를 작업 폴더의 현재 브랜치에 합칠지, 기본값 true. 커밋하지 않은 변경이 있거나 충돌하면 합치지 않고 명령만 알려 줘요.
 - markDoneOnSuccess: 성공하면 이슈를 done으로 바꿀지, 기본값 true. 실패하면 항상 blocked로 바꿔요.
 `;
 
@@ -58,6 +59,13 @@ export const configSchema: AdapterConfigSchema = {
       type: "toggle",
       default: true,
       hint: "끄면 성공해도 진행 중으로 남아요. 실패하면 항상 '막힘'으로 바꿔요.",
+    },
+    {
+      key: "autoMerge",
+      label: "성공하면 결과를 작업 폴더에 자동으로 합치기",
+      type: "toggle",
+      default: true,
+      hint: "하위 작업이 모두 성공했을 때만 합쳐요. 커밋하지 않은 변경이 있거나 충돌하면 합치지 않고 명령만 알려 줘요.",
     },
     { key: "configDir", label: "설정 폴더", type: "text", group: "고급", hint: "비워 두면 %LOCALAPPDATA%\\Nexus\\config" },
     { key: "opencodeCommand", label: "opencode 실행 파일", type: "text", group: "고급", hint: "비워 두면 opencode" },

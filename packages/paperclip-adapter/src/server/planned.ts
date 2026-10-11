@@ -6,6 +6,7 @@ import {
   addWorktree,
   commitAll,
   mergeInto,
+  mergeIntoWorkdir,
   removeWorktree,
   repoInfo,
   safeRef,
@@ -18,6 +19,7 @@ import {
   type Plan,
   type RunOutcome,
   type Subtask,
+  type WorkdirMergeResult,
   type Worktree,
 } from "@nexus/shared";
 import type { AdapterExecutionContext, AdapterExecutionResult } from "../adapter-types.ts";
@@ -76,7 +78,7 @@ interface SubtaskRun {
 
 /**
  * 하위 작업을 Paperclip 하위 이슈로 보여 주고, 각자 worktree에서 동시에 실행한다.
- * 결과는 하위 작업마다 nexus/<이슈>/<키> 브랜치에 커밋으로 남는다. (합치기는 3단계)
+ * 결과는 하위 작업마다 nexus/<이슈>/<키> 브랜치에 커밋으로 남고, 모두 성공하면 작업 폴더에 합친다(autoMerge).
  */
 export async function runPlanned(env: PlannedEnv, plan: Plan, planAttempts: Attempt[]): Promise<AdapterExecutionResult> {
   const { ctx, client, issue, classification, config, settings, log } = env;
@@ -146,7 +148,13 @@ export async function runPlanned(env: PlannedEnv, plan: Plan, planAttempts: Atte
 
   // 3. 상위 이슈에 결과를 모아 남긴다.
   const allDone = plan.subtasks.every((s) => results.get(s.key)?.status === "done");
-  await safeComment(client, issue.id, summaryComment(plan, runs, results, notes, Boolean(repo)));
+  let merge: WorkdirMergeResult | null = null;
+  const branches = plan.subtasks.map((s) => runs.get(s.key)?.commit && runs.get(s.key)?.branch).filter(Boolean) as string[];
+  if (repo && allDone && settings.autoMerge && branches.length && !ctx.signal?.aborted) {
+    merge = await serialGit(() => mergeIntoWorkdir(repo.root, branches));
+    await log(merge.ok ? `작업 폴더의 ${merge.branch} 브랜치에 결과를 합쳤어요.` : `자동으로 합치지 못했어요: ${merge.reason}`);
+  }
+  await safeComment(client, issue.id, summaryComment(plan, runs, results, notes, Boolean(repo), merge));
   await finishIssue(client, issue.id, allDone, { markDoneOnSuccess: settings.markDoneOnSuccess, signal: ctx.signal }, log);
 
   const outcomes: RunOutcome[] = [...planAttempts, ...[...runs.values()].flatMap((r) => r.attempts)].map((a) => a.outcome);
@@ -169,6 +177,7 @@ export async function runPlanned(env: PlannedEnv, plan: Plan, planAttempts: Atte
     resultJson: {
       classification,
       plan,
+      merged: merge?.ok ? { branch: merge.branch, head: merge.head } : null,
       subtasks: plan.subtasks.map((s) => {
         const r = runs.get(s.key)!;
         return {
@@ -293,6 +302,7 @@ function summaryComment(
   results: Map<string, { status: string }>,
   notes: string[],
   hasRepo: boolean,
+  merge: WorkdirMergeResult | null = null,
 ): string {
   const status = (k: string) => results.get(k)?.status ?? "skipped";
   const done = plan.subtasks.filter((s) => status(s.key) === "done").length;
@@ -314,7 +324,10 @@ function summaryComment(
     }
   }
   const branches = plan.subtasks.map((s) => runs.get(s.key)?.commit && runs.get(s.key)?.branch).filter(Boolean) as string[];
-  if (hasRepo && branches.length) {
+  if (hasRepo && branches.length && merge?.ok) {
+    lines.push("", `결과를 작업 폴더의 \`${merge.branch}\` 브랜치에 자동으로 합쳤어요 (커밋 ${merge.head.slice(0, 8)}). 각 하위 작업 브랜치도 그대로 남아 있어요.`);
+  } else if (hasRepo && branches.length) {
+    if (merge && !merge.ok) lines.push("", `자동으로 합치지 못했어요. ${merge.reason}`);
     lines.push("", "각 하위 작업의 변경은 브랜치에 커밋으로 남겼어요. 작업 폴더에 합치려면:", "```", `git merge ${branches.join(" ")}`, "```");
   }
   if (notes.length) lines.push("", ...notes.map((n) => `참고: ${n}`));

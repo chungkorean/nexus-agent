@@ -98,3 +98,33 @@ export async function removeWorktree(wt: Worktree): Promise<void> {
   await git(wt.repo, ["worktree", "remove", "--force", wt.dir]).catch(() => rmSync(wt.dir, { recursive: true, force: true }));
   await git(wt.repo, ["worktree", "prune"]).catch(() => undefined);
 }
+
+export type WorkdirMergeResult = { ok: true; branch: string; head: string } | { ok: false; reason: string };
+
+/**
+ * 하위 작업 브랜치들을 사용자 작업 폴더의 현재 브랜치에 합친다.
+ * 커밋하지 않은 변경이 있거나 브랜치가 없는(detached) 상태면 건드리지 않는다.
+ * 하나라도 충돌하면 합치기 전 상태로 되돌린다.
+ */
+export async function mergeIntoWorkdir(repo: string, branches: string[]): Promise<WorkdirMergeResult> {
+  let current: string;
+  try {
+    current = await git(repo, ["symbolic-ref", "--short", "-q", "HEAD"]);
+  } catch {
+    return { ok: false, reason: "작업 폴더가 특정 브랜치에 있지 않아요(detached HEAD)." };
+  }
+  const dirty = await git(repo, ["status", "--porcelain", "--untracked-files=no"]).catch(() => "?");
+  if (dirty) return { ok: false, reason: "작업 폴더에 커밋하지 않은 변경이 있어요." };
+  const before = await git(repo, ["rev-parse", "HEAD"]);
+  for (const b of branches) {
+    try {
+      await git(repo, ["merge", "--no-edit", b]);
+    } catch (err) {
+      const conflicts = await git(repo, ["diff", "--name-only", "--diff-filter=U"]).catch(() => "");
+      await git(repo, ["merge", "--abort"]).catch(() => undefined);
+      await git(repo, ["reset", "-q", "--hard", before]).catch(() => undefined);
+      return { ok: false, reason: conflicts ? `${b}를 합치다 충돌했어요 (${conflicts.split("\n").join(", ")}).` : `${b}를 합치지 못했어요: ${(err as Error).message}` };
+    }
+  }
+  return { ok: true, branch: current, head: await git(repo, ["rev-parse", "HEAD"]) };
+}

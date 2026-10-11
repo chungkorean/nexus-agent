@@ -147,18 +147,40 @@ describe("작업 분해와 병렬 실행", () => {
     const earliestEnd = Math.min(...spans.map((s) => s[1]));
     expect(latestStart).toBeLessThan(earliestEnd);
 
-    // 결과는 하위 작업별 브랜치 커밋으로 남고, 원래 작업 폴더와 worktree는 깨끗하다
+    // 결과는 하위 작업별 브랜치 커밋으로 남고, 모두 성공했으니 작업 폴더에도 합쳐진다
     expect(git(workdir, "show", "nexus/NEX-1/api:api.txt")).toContain("sonnet");
     expect(git(workdir, "show", "nexus/NEX-1/review:review.txt")).toContain("opencode");
-    expect(existsSync(path.join(workdir, "api.txt"))).toBe(false);
+    expect(readFileSync(path.join(workdir, "api.txt"), "utf8")).toContain("sonnet");
+    expect(existsSync(path.join(workdir, "review.txt"))).toBe(true);
+    expect(git(workdir, "status", "--porcelain")).toBe("");
     expect(git(workdir, "worktree", "list").split("\n")).toHaveLength(1);
 
     const parentComments = paperclip.comments.filter((c) => c.issueId === "NEX-1").map((c) => c.body);
     expect(parentComments[0]).toContain("Nexus 작업 계획: 하위 작업 3개");
     expect(parentComments[1]).toContain("Nexus 실행 결과: 완료 (3/3)");
-    expect(parentComments[1]).toContain("git merge nexus/NEX-1/api nexus/NEX-1/ui nexus/NEX-1/review");
+    expect(parentComments[1]).toContain("자동으로 합쳤어요");
+    expect(result.resultJson!.merged).toMatchObject({ branch: expect.any(String) });
     expect(result.billingType).toBe("unknown");
     expect((result.resultJson!.subtasks as unknown[]).length).toBe(3);
+  });
+
+  it("autoMerge를 끄거나 작업 폴더에 커밋하지 않은 변경이 있으면 합치지 않고 명령만 알려 준다", async () => {
+    setPlan(THREE.slice(0, 2));
+    await executeDispatch(ctx({ autoMerge: false }), deps);
+    expect(existsSync(path.join(workdir, "api.txt"))).toBe(false);
+    let summary = paperclip.comments.filter((c) => c.issueId === "NEX-1").at(-1)!.body;
+    expect(summary).toContain("git merge nexus/NEX-1/api nexus/NEX-1/ui");
+    expect(summary).not.toContain("자동으로");
+
+    paperclip.comments.length = 0;
+    paperclip.issues.get("NEX-1")!.status = "todo";
+    writeFileSync(path.join(workdir, "README.md"), "편집 중\n");
+    await executeDispatch(ctx(), deps);
+    expect(existsSync(path.join(workdir, "api.txt"))).toBe(false);
+    expect(readFileSync(path.join(workdir, "README.md"), "utf8")).toBe("편집 중\n");
+    summary = paperclip.comments.filter((c) => c.issueId === "NEX-1").at(-1)!.body;
+    expect(summary).toContain("자동으로 합치지 못했어요. 작업 폴더에 커밋하지 않은 변경이 있어요.");
+    expect(summary).toContain("git merge nexus/NEX-1/api-2 nexus/NEX-1/ui-2");
   });
 
   it("뒤 작업은 앞 작업의 브랜치를 합친 상태에서 시작한다", async () => {
