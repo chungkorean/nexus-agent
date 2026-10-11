@@ -1,0 +1,742 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nexus 설정</title>
+<style>
+:root {
+  --bg: #f4f5f7;
+  --card: #ffffff;
+  --text: #1c1f24;
+  --muted: #5b6370;
+  --line: #d9dde3;
+  --accent: #2459d6;
+  --accent-text: #ffffff;
+  --accent-soft: #e8eefc;
+  --ok: #1d7a3d;
+  --ok-soft: #e3f4e8;
+  --warn: #8a5a00;
+  --warn-soft: #fdf1d8;
+  --bad: #b3261e;
+  --bad-soft: #fbe5e3;
+  --focus: #f0a400;
+  --shadow: 0 1px 2px rgba(0,0,0,.06), 0 2px 8px rgba(0,0,0,.04);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #15171b;
+    --card: #1f2228;
+    --text: #eceef1;
+    --muted: #a3aab5;
+    --line: #353a43;
+    --accent: #6f9bff;
+    --accent-text: #0d1220;
+    --accent-soft: #1f2b47;
+    --ok: #6fd28f;
+    --ok-soft: #173322;
+    --warn: #f0c060;
+    --warn-soft: #3a2f14;
+    --bad: #ff8b82;
+    --bad-soft: #3d1c1a;
+    --shadow: none;
+  }
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Malgun Gothic", "맑은 고딕", "Apple SD Gothic Neo", "Noto Sans KR", system-ui, sans-serif;
+  font-size: 17px;
+  line-height: 1.6;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+main { max-width: 920px; margin: 0 auto; padding: 24px 16px 140px; }
+header h1 { font-size: 28px; margin: 8px 0 4px; }
+header p { margin: 0 0 16px; color: var(--muted); }
+section.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 20px;
+  margin: 18px 0;
+  box-shadow: var(--shadow);
+}
+section.card > h2 { font-size: 21px; margin: 0 0 4px; display: flex; align-items: center; gap: 10px; }
+.num {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; border-radius: 50%;
+  background: var(--accent-soft); color: var(--accent); font-size: 16px; font-weight: 700; flex: none;
+}
+.help { color: var(--muted); margin: 0 0 14px; font-size: 16px; }
+.small { font-size: 15px; color: var(--muted); }
+label { cursor: pointer; }
+select, input[type=text] {
+  font: inherit; color: var(--text); background: var(--card);
+  border: 1.5px solid var(--line); border-radius: 10px;
+  padding: 10px 12px; min-height: 48px; width: 100%;
+}
+select:focus, input:focus, button:focus-visible, summary:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+button {
+  font: inherit; cursor: pointer; border-radius: 10px; min-height: 48px; padding: 8px 18px;
+  border: 1.5px solid var(--line); background: var(--card); color: var(--text); font-weight: 600;
+}
+button:hover:not(:disabled) { border-color: var(--accent); }
+button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+button.danger { color: var(--bad); }
+button:disabled { opacity: .45; cursor: not-allowed; }
+button.small-btn { min-height: 42px; padding: 6px 14px; font-size: 15px; }
+
+/* 1. 작업별 담당 AI */
+table.tasks { width: 100%; border-collapse: collapse; }
+table.tasks th { text-align: left; font-size: 15px; color: var(--muted); font-weight: 600; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+table.tasks td { padding: 10px 8px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+table.tasks tr:last-child td { border-bottom: 0; }
+table.tasks td.task { font-weight: 700; width: 24%; }
+table.tasks .extra { display: block; font-weight: 400; font-size: 14px; color: var(--muted); }
+.cell-label { display: none; font-size: 14px; color: var(--muted); }
+
+/* 2. 작업 나누기 */
+.choices { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 16px; }
+.choice { position: relative; display: block; border: 1.5px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+.choice input { position: absolute; opacity: 0; pointer-events: none; }
+.choice strong { display: block; font-size: 18px; }
+.choice span { display: block; font-size: 15px; color: var(--muted); }
+.choice:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
+.choice:has(input:focus-visible) { outline: 3px solid var(--focus); outline-offset: 2px; }
+.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.field > span { display: block; font-weight: 600; margin-bottom: 4px; }
+
+/* 3. 계정 */
+.accounts { list-style: none; margin: 0 0 18px; padding: 0; }
+.account { border: 1px solid var(--line); border-radius: 12px; padding: 14px; margin-bottom: 10px; }
+.account-top { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; justify-content: space-between; }
+.account-name { font-weight: 700; font-size: 18px; }
+.account-meta { font-size: 15px; color: var(--muted); }
+.badge { display: inline-block; font-size: 15px; font-weight: 700; padding: 3px 12px; border-radius: 999px; white-space: nowrap; }
+.badge.ok { background: var(--ok-soft); color: var(--ok); }
+.badge.warn { background: var(--warn-soft); color: var(--warn); }
+.badge.bad { background: var(--bad-soft); color: var(--bad); }
+.account-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.empty { border: 1.5px dashed var(--line); border-radius: 12px; padding: 16px; color: var(--muted); text-align: center; }
+.add-box { border-top: 1px solid var(--line); padding-top: 16px; }
+.add-box h3 { margin: 0 0 10px; font-size: 18px; }
+.engine-choices { grid-template-columns: 1fr 1fr; }
+.stack > * + * { margin-top: 12px; }
+
+/* 4. AI 모델 */
+.models { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 380px), 1fr)); gap: 14px; }
+.model { border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
+.model-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.model-head .tag { font-size: 14px; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 1px 10px; white-space: nowrap; }
+.checks { display: flex; flex-direction: column; gap: 6px; margin: 6px 0 4px; }
+.check { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; min-height: 48px; }
+.check input { width: 22px; height: 22px; accent-color: var(--accent); flex: none; }
+.check .order { margin-left: auto; font-size: 14px; color: var(--accent); font-weight: 700; }
+details { margin-top: 10px; }
+summary { cursor: pointer; color: var(--muted); font-weight: 600; min-height: 36px; display: flex; align-items: center; }
+details .inner { padding-top: 8px; }
+
+/* 5. 기타 */
+.toggle-row { display: flex; gap: 14px; align-items: flex-start; justify-content: space-between; padding-bottom: 16px; border-bottom: 1px solid var(--line); margin-bottom: 16px; }
+.toggle-row strong { display: block; font-size: 18px; }
+.switch { position: relative; flex: none; width: 64px; height: 36px; }
+.switch input { position: absolute; inset: 0; opacity: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; z-index: 1; }
+.switch .track { position: absolute; inset: 0; border-radius: 999px; background: var(--line); transition: background .15s; }
+.switch .track::after { content: ""; position: absolute; top: 4px; left: 4px; width: 28px; height: 28px; border-radius: 50%; background: #fff; transition: transform .15s; box-shadow: 0 1px 3px rgba(0,0,0,.3); }
+.switch input:checked + .track { background: var(--accent); }
+.switch input:checked + .track::after { transform: translateX(28px); }
+.switch input:focus-visible + .track { outline: 3px solid var(--focus); outline-offset: 2px; }
+
+/* 아래 고정 막대 */
+.bar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
+  background: var(--card); border-top: 1px solid var(--line);
+  box-shadow: 0 -2px 12px rgba(0,0,0,.08);
+  padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+}
+.bar-inner { max-width: 920px; margin: 0 auto; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.bar-status { flex: 1 1 200px; font-size: 16px; color: var(--muted); }
+.bar-status.dirty { color: var(--accent); font-weight: 700; }
+.bar-buttons { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* 알림 */
+.notice { border-radius: 12px; padding: 14px 16px; margin: 12px 0; font-size: 16px; }
+.notice.ok { background: var(--ok-soft); color: var(--ok); }
+.notice.bad { background: var(--bad-soft); color: var(--bad); }
+.notice.info { background: var(--accent-soft); color: var(--text); }
+.notice ul { margin: 6px 0 0; padding-left: 22px; }
+.notice:empty { display: none; }
+#toast {
+  position: fixed; left: 50%; bottom: 96px; transform: translateX(-50%); z-index: 30;
+  max-width: min(92vw, 640px); width: max-content;
+  padding: 14px 20px; border-radius: 12px; font-weight: 600; box-shadow: 0 4px 18px rgba(0,0,0,.18);
+  display: none;
+}
+#toast.show { display: block; }
+#toast.ok { background: var(--ok); color: #fff; }
+#toast.bad { background: var(--bad); color: #fff; }
+@media (prefers-color-scheme: dark) { #toast.ok, #toast.bad { color: #10131a; } }
+
+/* 대화 상자 */
+.modal-back { position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 40; display: none; align-items: center; justify-content: center; padding: 16px; }
+.modal-back.show { display: flex; }
+.modal { background: var(--card); color: var(--text); border-radius: 16px; padding: 22px; width: min(100%, 560px); max-height: 85vh; overflow: auto; }
+.modal h3 { margin: 0 0 10px; font-size: 20px; }
+.modal ul { padding-left: 22px; margin: 8px 0; }
+.modal li + li { margin-top: 6px; }
+.modal-buttons { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; flex-wrap: wrap; }
+code.cmd { display: block; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 12px; font-family: Consolas, "D2Coding", monospace; font-size: 15px; white-space: pre-wrap; word-break: break-all; }
+
+footer { color: var(--muted); font-size: 14px; margin-top: 24px; }
+.loading { text-align: center; padding: 60px 0; color: var(--muted); }
+
+@media (max-width: 640px) {
+  body { font-size: 16px; }
+  header h1 { font-size: 24px; }
+  section.card { padding: 16px; }
+  table.tasks thead { display: none; }
+  table.tasks, table.tasks tbody, table.tasks tr, table.tasks td { display: block; width: 100%; }
+  table.tasks tr { border-bottom: 1px solid var(--line); padding: 10px 0; }
+  table.tasks tr:last-child { border-bottom: 0; }
+  table.tasks td { border: 0; padding: 4px 0; }
+  table.tasks td.task { width: 100%; font-size: 18px; }
+  .cell-label { display: block; }
+  .choices, .engine-choices, .row2 { grid-template-columns: 1fr; }
+  .bar-buttons { width: 100%; }
+  .bar-buttons button { flex: 1 1 0; padding: 8px 6px; }
+}
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Nexus 설정</h1>
+    <p>어떤 일을 어떤 AI에게 맡길지 정해요. 저장한 내용은 다음 작업부터 적용돼요.</p>
+  </header>
+  <div id="notice" class="notice" role="status" aria-live="polite"></div>
+  <div id="app"><p class="loading">설정을 불러오는 중이에요...</p></div>
+  <footer id="footer"></footer>
+</main>
+
+<div class="bar" id="bar">
+  <div class="bar-inner">
+    <div class="bar-status" id="barStatus">바꾼 내용이 없어요.</div>
+    <div class="bar-buttons">
+      <button type="button" id="btnPreview">미리 보기</button>
+      <button type="button" id="btnSave" class="primary">저장</button>
+      <button type="button" id="btnRollback">되돌리기</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" role="status" aria-live="assertive"></div>
+<div class="modal-back" id="modalBack"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle" id="modal"></div></div>
+
+<script>
+"use strict";
+const ENGINE_NAMES = { "claude-code": "Claude 구독", opencode: "그 밖의 AI (OpenCode)" };
+const PROVIDERS = [
+  ["openai", "ChatGPT / OpenAI"],
+  ["google", "Gemini / Google"],
+  ["github-copilot", "GitHub Copilot"],
+  ["openrouter", "OpenRouter"],
+  ["ollama", "Ollama (내 컴퓨터)"],
+  ["opencode", "그 밖의 서비스"],
+];
+const PROVIDER_NAMES = Object.fromEntries([["anthropic", "Claude"], ...PROVIDERS]);
+const MODES = [
+  ["auto", "자동", "큰 작업만 나눠서 맡겨요"],
+  ["always", "항상", "모든 작업을 나눠서 맡겨요"],
+  ["never", "안 함", "나누지 않고 한 번에 맡겨요"],
+];
+
+let S = null;      // 서버에서 받은 상태
+let orig = null;   // 저장된 값
+let draft = null;  // 화면에서 고치는 값
+let busy = false;
+
+// ---------- 작은 도우미 ----------
+function h(tag, attrs, ...children) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (v === false || v == null) continue;
+    if (k === "class") el.className = v;
+    else if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
+    else if (k === "checked" || k === "selected" || k === "disabled" || k === "value") el[k] = v;
+    else el.setAttribute(k, v === true ? "" : v);
+  }
+  for (const c of children.flat()) {
+    if (c == null || c === false) continue;
+    el.append(c instanceof Node ? c : document.createTextNode(String(c)));
+  }
+  return el;
+}
+const $ = (id) => document.getElementById(id);
+const clone = (x) => JSON.parse(JSON.stringify(x));
+const aliasLabel = (name) => (S.aliases.find((a) => a.name === name) || {}).label || name;
+const draftLabel = (name) => (draft && draft.aliases[name] && draft.aliases[name].label.trim()) || aliasLabel(name);
+
+async function api(path, body) {
+  const opts = body === undefined
+    ? { headers: { "X-Nexus": "1" } }
+    : { method: "POST", headers: { "Content-Type": "application/json", "X-Nexus": "1" }, body: JSON.stringify(body) };
+  let res;
+  try {
+    res = await fetch(path, opts);
+  } catch (e) {
+    throw { error: "설정 화면 프로그램과 연결이 끊겼어요. 검은 창이 켜져 있는지 확인하고, 꺼져 있으면 다시 실행해 주세요.", problems: [] };
+  }
+  let data = {};
+  try { data = await res.json(); } catch (e) { /* 빈 응답 */ }
+  if (!res.ok || data.ok === false) throw { error: data.error || "문제가 생겼어요. 잠시 뒤 다시 해 주세요.", problems: data.problems || [] };
+  return data;
+}
+
+function toast(text, kind) {
+  const t = $("toast");
+  t.textContent = text;
+  t.className = "show " + (kind || "ok");
+  clearTimeout(toast.timer);
+  toast.timer = setTimeout(() => { t.className = ""; }, kind === "bad" ? 7000 : 4500);
+}
+
+function notice(kind, title, items) {
+  const n = $("notice");
+  n.replaceChildren();
+  if (!title) { n.className = "notice"; return; }
+  n.className = "notice " + kind;
+  n.append(h("strong", {}, title));
+  if (items && items.length) n.append(h("ul", {}, items.map((x) => h("li", {}, x))));
+}
+
+function showError(err) {
+  const e = err && err.error ? err : { error: String((err && err.message) || err), problems: [] };
+  notice("bad", e.error, e.problems);
+  toast(e.error, "bad");
+  $("notice").scrollIntoView({ behavior: "smooth", block: "center" });
+}
+
+// 대화 상자. 버튼을 누르면 그 버튼의 값으로 끝난다.
+function dialog(title, body, buttons) {
+  return new Promise((resolve) => {
+    const back = $("modalBack");
+    const box = $("modal");
+    const close = (v) => { back.classList.remove("show"); document.removeEventListener("keydown", onKey); resolve(v); };
+    const onKey = (e) => { if (e.key === "Escape") close(null); };
+    box.replaceChildren(
+      h("h3", { id: "modalTitle" }, title),
+      body,
+      h("div", { class: "modal-buttons" }, buttons.map((b) => h("button", { type: "button", class: b.kind || "", onclick: () => close(b.value) }, b.text))),
+    );
+    back.classList.add("show");
+    back.onclick = (e) => { if (e.target === back) close(null); };
+    document.addEventListener("keydown", onKey);
+    const focus = box.querySelector("button.primary") || box.querySelector("button");
+    if (focus) focus.focus();
+  });
+}
+
+function formatUntil(iso) {
+  const d = new Date(iso);
+  const now = new Date();
+  const hm = String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+  if (d.toDateString() === now.toDateString()) return hm;
+  return (d.getMonth() + 1) + "월 " + d.getDate() + "일 " + hm;
+}
+
+// ---------- 상태 → 편집 값 ----------
+function toDraft(s) {
+  const tasks = {};
+  for (const t of s.taskTypes) tasks[t.id] = { first: t.chain[0] || "", second: t.chain[1] || "" };
+  const aliases = {};
+  for (const a of s.aliases) aliases[a.name] = { label: a.label, model: a.model, accounts: a.accounts.slice() };
+  return {
+    tasks,
+    aliases,
+    preferLocal: s.routing.preferLocal,
+    maxFallbacks: s.routing.maxFallbacks,
+    highRiskAlias: s.routing.highRiskAlias,
+    planning: { mode: s.routing.planning.mode, concurrency: s.routing.planning.concurrency, maxSubtasks: s.routing.planning.maxSubtasks },
+  };
+}
+
+// 바꾼 항목만 담아 서버에 보낸다.
+function buildChanges() {
+  const c = {};
+  for (const [id, t] of Object.entries(draft.tasks)) {
+    const o = orig.tasks[id];
+    if (t.first !== o.first || t.second !== o.second) (c.taskTypes = c.taskTypes || {})[id] = { first: t.first, second: t.second || null };
+  }
+  for (const [name, a] of Object.entries(draft.aliases)) {
+    const o = orig.aliases[name];
+    const d = {};
+    if (a.label.trim() !== o.label) d.label = a.label.trim();
+    if (a.model.trim() !== o.model) d.model = a.model.trim();
+    if (a.accounts.join("\n") !== o.accounts.join("\n")) d.accounts = a.accounts.slice();
+    if (Object.keys(d).length) (c.aliases = c.aliases || {})[name] = d;
+  }
+  if (draft.preferLocal !== orig.preferLocal) c.preferLocal = draft.preferLocal;
+  if (draft.maxFallbacks !== orig.maxFallbacks) c.maxFallbacks = draft.maxFallbacks;
+  if (draft.highRiskAlias !== orig.highRiskAlias) c.highRiskAlias = draft.highRiskAlias;
+  for (const k of ["mode", "concurrency", "maxSubtasks"]) {
+    if (draft.planning[k] !== orig.planning[k]) (c.planning = c.planning || {})[k] = draft.planning[k];
+  }
+  return c;
+}
+
+function countChanges(c) {
+  let n = 0;
+  n += Object.keys(c.taskTypes || {}).length;
+  for (const v of Object.values(c.aliases || {})) n += Object.keys(v).length;
+  n += ["preferLocal", "maxFallbacks", "highRiskAlias"].filter((k) => k in c).length;
+  n += Object.keys(c.planning || {}).length;
+  return n;
+}
+
+function refreshBar() {
+  const n = draft && orig ? countChanges(buildChanges()) : 0;
+  const st = $("barStatus");
+  st.textContent = n ? "저장하지 않은 바뀐 내용이 " + n + "개 있어요." : "바뀐 내용이 없어요.";
+  st.classList.toggle("dirty", n > 0);
+  $("btnSave").disabled = busy || n === 0;
+  $("btnPreview").disabled = busy || n === 0;
+  $("btnRollback").disabled = busy || !S || !S.canRollback;
+}
+
+// ---------- 화면 그리기 ----------
+function aliasOptions(selected, withNone) {
+  const opts = [];
+  if (withNone) opts.push(h("option", { value: "", selected: !selected }, "없음 (넘기지 않음)"));
+  for (const a of S.aliases) opts.push(h("option", { value: a.name, selected: a.name === selected }, draftLabel(a.name)));
+  return opts;
+}
+
+function sectionTitle(n, text) {
+  return h("h2", {}, h("span", { class: "num", "aria-hidden": "true" }, String(n)), text);
+}
+
+function renderTasks() {
+  const rows = S.taskTypes.map((t) => {
+    const d = draft.tasks[t.id];
+    const extra = t.chain.length > 2 && d.second ? h("span", { class: "extra" }, "그다음 순서 " + (t.chain.length - 2) + "개는 그대로 둬요") : null;
+    return h("tr", {},
+      h("td", { class: "task" }, t.name, extra),
+      h("td", {},
+        h("label", { class: "cell-label", for: "first-" + t.id }, "1순위"),
+        h("select", { id: "first-" + t.id, "aria-label": t.name + " 1순위", onchange: (e) => { d.first = e.target.value; if (d.second === d.first) d.second = ""; renderTasksOnly(); } }, aliasOptions(d.first, false))),
+      h("td", {},
+        h("label", { class: "cell-label", for: "second-" + t.id }, "2순위"),
+        h("select", { id: "second-" + t.id, "aria-label": t.name + " 2순위", onchange: (e) => { d.second = e.target.value; refreshBar(); } },
+          aliasOptions(d.second, true).filter((o) => o.value !== d.first))),
+    );
+  });
+  return h("section", { class: "card", id: "sec-tasks" },
+    sectionTitle(1, "작업별 담당 AI"),
+    h("p", { class: "help" }, "작업마다 먼저 맡길 AI(1순위)와, 1순위가 한도에 걸리거나 로그인이 풀렸을 때 대신 맡길 AI(2순위)를 골라요."),
+    h("table", { class: "tasks" },
+      h("thead", {}, h("tr", {}, h("th", {}, "작업"), h("th", {}, "1순위"), h("th", {}, "2순위"))),
+      h("tbody", {}, rows)));
+}
+
+function renderPlanning() {
+  const p = draft.planning;
+  const range = (lo, hi, cur) => {
+    const vals = [];
+    for (let i = lo; i <= hi; i++) vals.push(i);
+    if (!vals.includes(cur)) vals.push(cur);
+    return vals.sort((a, b) => a - b);
+  };
+  const off = p.mode === "never";
+  return h("section", { class: "card", id: "sec-planning" },
+    sectionTitle(2, "작업 나누기"),
+    h("p", { class: "help" }, "큰 작업을 작은 일 여러 개로 나눠 여러 AI에게 동시에 맡길 수 있어요."),
+    h("div", { class: "choices", role: "radiogroup", "aria-label": "작업 나누기" },
+      MODES.map(([v, name, desc]) => h("label", { class: "choice" },
+        h("input", { type: "radio", name: "mode", value: v, checked: p.mode === v, onchange: () => { p.mode = v; rerender(); } }),
+        h("strong", {}, name), h("span", {}, desc)))),
+    h("div", { class: "row2" },
+      h("label", { class: "field" }, h("span", {}, "동시 실행 수"),
+        h("select", { disabled: off, onchange: (e) => { p.concurrency = Number(e.target.value); refreshBar(); } },
+          range(S.limits.concurrency[0], S.limits.concurrency[1], p.concurrency).map((n) => h("option", { value: String(n), selected: n === p.concurrency }, n + "개까지 동시에"))),
+        h("span", { class: "small" }, "구독 한도가 빨리 줄면 낮춰 주세요.")),
+      h("label", { class: "field" }, h("span", {}, "최대 몇 개로"),
+        h("select", { disabled: off, onchange: (e) => { p.maxSubtasks = Number(e.target.value); refreshBar(); } },
+          range(S.limits.maxSubtasks[0], S.limits.maxSubtasks[1], p.maxSubtasks).map((n) => h("option", { value: String(n), selected: n === p.maxSubtasks }, n + "개까지 나누기"))),
+        h("span", { class: "small" }, "한 작업을 이 개수보다 잘게 나누지 않아요."))));
+}
+
+function accountStatus(a) {
+  if (a.cooldown && a.cooldown.reason === "provider_auth") return ["bad", "로그인 필요"];
+  if (a.cooldown) return ["warn", "한도로 쉬는 중 (~" + formatUntil(a.cooldown.until) + "까지)"];
+  if (!a.loggedIn) return ["bad", "로그인 필요"];
+  return ["ok", "사용 가능"];
+}
+
+function renderAccounts() {
+  const list = S.accounts.length
+    ? h("ul", { class: "accounts" }, S.accounts.map((a) => {
+        const [kind, text] = accountStatus(a);
+        const provider = a.engine === "claude-code" ? "Claude 구독" : (PROVIDER_NAMES[a.provider] || a.provider) + " (OpenCode)";
+        return h("li", { class: "account" },
+          h("div", { class: "account-top" },
+            h("div", {}, h("div", { class: "account-name" }, a.label), h("div", { class: "account-meta" }, provider + " · " + a.id)),
+            h("span", { class: "badge " + kind }, text)),
+          a.usedBy.length ? h("div", { class: "small" }, "쓰는 AI 모델: " + a.usedBy.join(", ")) : null,
+          h("div", { class: "account-actions" },
+            a.provider === "ollama" ? null : h("button", { type: "button", class: "small-btn", onclick: () => loginAccount(a) }, "로그인 창 열기"),
+            a.cooldown ? h("button", { type: "button", class: "small-btn", onclick: () => resetAccount(a) }, "상태 초기화") : null,
+            h("button", { type: "button", class: "small-btn danger", onclick: () => removeAccount(a) }, "삭제")));
+      }))
+    : h("p", { class: "empty" }, "아직 추가한 계정이 없어요. 계정을 따로 정하지 않으면 각 프로그램에 평소 로그인한 계정을 써요.");
+
+  const form = { engine: "claude-code", provider: "openai", label: "", id: "" };
+  const providerWrap = h("label", { class: "field", style: "display:none" }, h("span", {}, "어떤 서비스인가요?"),
+    h("select", { onchange: (e) => { form.provider = e.target.value; autoId(); } }, PROVIDERS.map(([v, name]) => h("option", { value: v }, name))));
+  const idInput = h("input", { type: "text", maxlength: "40", autocomplete: "off", spellcheck: "false", placeholder: "예: claude-main", oninput: (e) => { form.id = e.target.value; idInput.dataset.touched = "1"; } });
+  const autoId = () => {
+    if (idInput.dataset.touched) return;
+    const base = form.engine === "claude-code" ? "claude" : form.provider;
+    let id = base, i = 2;
+    while (S.accounts.some((a) => a.id.toLowerCase() === id.toLowerCase())) id = base + "-" + i++;
+    idInput.value = form.id = id;
+  };
+  const engineChoice = (v, title, desc) => h("label", { class: "choice" },
+    h("input", { type: "radio", name: "newEngine", value: v, checked: form.engine === v, onchange: () => { form.engine = v; providerWrap.style.display = v === "opencode" ? "" : "none"; autoId(); } }),
+    h("strong", {}, title), h("span", {}, desc));
+  autoId();
+
+  const addBox = h("div", { class: "add-box stack" },
+    h("h3", {}, "계정 추가"),
+    h("div", { class: "choices engine-choices", role: "radiogroup", "aria-label": "계정 종류" },
+      engineChoice("claude-code", "Claude 구독", "Claude Pro나 Max 계정이에요. Claude Code로 실행해요."),
+      engineChoice("opencode", "그 밖의 AI (OpenCode)", "ChatGPT, Gemini, GitHub Copilot 같은 다른 회사 AI예요.")),
+    providerWrap,
+    h("label", { class: "field" }, h("span", {}, "이 계정을 부를 이름"),
+      h("input", { type: "text", maxlength: "80", placeholder: "예: 회사 Claude 계정", oninput: (e) => { form.label = e.target.value; } })),
+    h("details", {}, h("summary", {}, "고급: 영문 이름"),
+      h("div", { class: "inner" }, h("label", { class: "field" }, h("span", {}, "영문 이름 (설정 파일과 폴더 이름에 써요)"), idInput))),
+    h("button", { type: "button", class: "primary", onclick: () => addAccount(form) }, "계정 추가"));
+
+  return h("section", { class: "card", id: "sec-accounts" },
+    sectionTitle(3, "계정"),
+    h("p", { class: "help" }, "로그인해 둔 AI 계정이에요. 같은 서비스 계정을 여러 개 추가하면, 한 계정이 한도에 걸렸을 때 다음 계정으로 넘어가요."),
+    list, addBox);
+}
+
+function renderModels() {
+  const cards = S.aliases.map((a) => {
+    const d = draft.aliases[a.name];
+    const same = S.accounts.filter((acc) => acc.engine === a.engine);
+    // 이미 지운 계정이 남아 있으면 빼 둔다.
+    d.accounts = d.accounts.filter((id) => S.accounts.some((acc) => acc.id === id));
+    const checks = same.length
+      ? h("div", { class: "checks" }, same.map((acc) => {
+          const idx = d.accounts.indexOf(acc.id);
+          return h("label", { class: "check" },
+            h("input", { type: "checkbox", checked: idx >= 0, onchange: (e) => {
+              if (e.target.checked) { if (!d.accounts.includes(acc.id)) d.accounts.push(acc.id); }
+              else d.accounts = d.accounts.filter((x) => x !== acc.id);
+              rerenderModels();
+            } }),
+            h("span", {}, acc.label),
+            idx >= 0 && d.accounts.length > 1 ? h("span", { class: "order" }, (idx + 1) + "번째") : null);
+        }))
+      : h("p", { class: "small" }, a.engine === "claude-code" ? "Claude 구독 계정이 아직 없어요. 위 '계정' 칸에서 추가하면 여기서 고를 수 있어요." : "OpenCode 계정이 아직 없어요. 위 '계정' 칸에서 추가하면 여기서 고를 수 있어요.");
+    return h("div", { class: "model" },
+      h("div", { class: "model-head" }, h("strong", {}, d.label || a.label), h("span", { class: "tag" }, a.engine === "claude-code" ? "Claude 구독" : "OpenCode")),
+      h("label", { class: "field" }, h("span", {}, "보여 줄 이름"),
+        h("input", { type: "text", maxlength: "80", value: d.label, oninput: (e) => { d.label = e.target.value; refreshBar(); }, onchange: () => rerender() })),
+      h("div", { class: "field", style: "margin-top:10px" }, h("span", {}, "쓸 계정"), checks,
+        h("span", { class: "small" }, "아무것도 고르지 않으면 평소 로그인한 계정을 써요. 여러 개 고르면 고른 순서대로 쓰고, 한도에 걸리면 다음 계정으로 넘어가요.")),
+      h("details", {}, h("summary", {}, "고급"),
+        h("div", { class: "inner" }, h("label", { class: "field" }, h("span", {}, "모델 ID"),
+          h("input", { type: "text", spellcheck: "false", autocomplete: "off", value: d.model, oninput: (e) => { d.model = e.target.value; refreshBar(); } }),
+          h("span", { class: "small" }, a.engine === "claude-code" ? "opus, sonnet, haiku 또는 전체 모델 ID를 적어요." : "공급자/모델 형식으로 적어요. 예: openai/gpt-5")))));
+  });
+  return h("section", { class: "card", id: "sec-models" },
+    sectionTitle(4, "AI 모델"),
+    h("p", { class: "help" }, "위 표에서 고르는 AI들이에요. 이름을 알아보기 쉽게 바꾸고, 어떤 계정으로 쓸지 정해요."),
+    h("div", { class: "models" }, cards));
+}
+
+function renderMisc() {
+  const times = [];
+  for (let i = S.limits.maxFallbacks[0]; i <= S.limits.maxFallbacks[1]; i++) times.push(i);
+  if (!times.includes(draft.maxFallbacks)) times.push(draft.maxFallbacks);
+  const localId = "preferLocal";
+  return h("section", { class: "card", id: "sec-misc" },
+    sectionTitle(5, "기타"),
+    h("div", { class: "toggle-row" },
+      h("label", { for: localId }, h("strong", {}, "내 컴퓨터 모델 먼저 쓰기"),
+        h("span", { class: "small" }, "테스트 작성, 문서 같은 가벼운 작업을 내 컴퓨터 모델(Ollama)에 먼저 맡겨요. 무료지만 느리거나 덜 정확할 수 있어요.")),
+      h("span", { class: "switch" },
+        h("input", { type: "checkbox", id: localId, role: "switch", checked: draft.preferLocal, onchange: (e) => { draft.preferLocal = e.target.checked; refreshBar(); } }),
+        h("span", { class: "track", "aria-hidden": "true" }))),
+    h("div", { class: "row2" },
+      h("label", { class: "field" }, h("span", {}, "실패하면 다른 AI로 넘어가는 횟수"),
+        h("select", { onchange: (e) => { draft.maxFallbacks = Number(e.target.value); refreshBar(); } },
+          times.sort((a, b) => a - b).map((n) => h("option", { value: String(n), selected: n === draft.maxFallbacks }, n === 0 ? "넘어가지 않음" : n + "번까지"))),
+        h("span", { class: "small" }, "한도 초과나 로그인 문제로 실패했을 때 2순위, 3순위 AI로 몇 번까지 넘어갈지 정해요.")),
+      h("label", { class: "field" }, h("span", {}, "위험한 작업에 먼저 쓸 AI"),
+        h("select", { onchange: (e) => { draft.highRiskAlias = e.target.value; refreshBar(); } }, aliasOptions(draft.highRiskAlias, false)),
+        h("span", { class: "small" }, "로그인, 결제, 삭제처럼 조심해야 하는 작업이에요."))));
+}
+
+function rerender() {
+  const y = window.scrollY;
+  const open = [...document.querySelectorAll("details[open]")].map((d) => d.closest("section").id + ":" + [...d.closest("section").querySelectorAll("details")].indexOf(d));
+  $("app").replaceChildren(renderTasks(), renderPlanning(), renderAccounts(), renderModels(), renderMisc());
+  for (const key of open) {
+    const [sec, i] = key.split(":");
+    const d = document.querySelectorAll("#" + sec + " details")[Number(i)];
+    if (d) d.open = true;
+  }
+  $("footer").textContent = "설정 파일 위치: " + S.configDir;
+  window.scrollTo(0, y);
+  refreshBar();
+}
+function renderTasksOnly() { $("sec-tasks").replaceWith(renderTasks()); refreshBar(); }
+function rerenderModels() {
+  const sec = $("sec-models");
+  const open = [...sec.querySelectorAll("details")].map((d) => d.open);
+  const next = renderModels();
+  next.querySelectorAll("details").forEach((d, i) => { d.open = !!open[i]; });
+  sec.replaceWith(next);
+  refreshBar();
+}
+
+// ---------- 불러오기와 동작 ----------
+async function load(keepDraft) {
+  const s = await api("/api/state");
+  S = s;
+  const fresh = toDraft(s);
+  if (keepDraft && draft) {
+    // 계정만 새로 고치고, 저장하지 않은 편집 내용은 그대로 둔다.
+    orig.aliases = fresh.aliases;
+    for (const [name, a] of Object.entries(draft.aliases)) {
+      if (!fresh.aliases[name]) delete draft.aliases[name];
+    }
+    for (const name of Object.keys(fresh.aliases)) {
+      if (!draft.aliases[name]) draft.aliases[name] = clone(fresh.aliases[name]);
+    }
+  } else {
+    orig = fresh;
+    draft = clone(fresh);
+  }
+  rerender();
+}
+
+async function withBusy(fn) {
+  if (busy) return;
+  busy = true;
+  refreshBar();
+  try { await fn(); } catch (e) { showError(e); } finally { busy = false; refreshBar(); }
+}
+
+function previewList(sentences) {
+  return sentences.length ? h("ul", {}, sentences.map((s) => h("li", {}, s))) : h("p", {}, "바뀐 내용이 없어요.");
+}
+
+$("btnPreview").onclick = () => withBusy(async () => {
+  const res = await api("/api/preview", buildChanges());
+  const body = h("div", {}, previewList(res.sentences));
+  if (res.problems.length) body.append(h("div", { class: "notice bad" }, h("strong", {}, "이대로는 저장할 수 없어요."), h("ul", {}, res.problems.map((p) => h("li", {}, p)))));
+  else body.append(h("p", { class: "small" }, "저장하면 다음 작업부터 적용돼요."));
+  const go = await dialog("이렇게 바뀌어요", body, res.problems.length
+    ? [{ text: "닫기", value: null, kind: "primary" }]
+    : [{ text: "닫기", value: null }, { text: "저장", value: "save", kind: "primary" }]);
+  if (go === "save") await doSave();
+});
+
+async function doSave() {
+  const res = await api("/api/save", buildChanges());
+  await load(false);
+  notice("ok", res.message, res.sentences);
+  toast(res.message, "ok");
+}
+$("btnSave").onclick = () => withBusy(doSave);
+
+$("btnRollback").onclick = () => withBusy(async () => {
+  const dirty = countChanges(buildChanges()) > 0;
+  const body = h("div", {},
+    h("p", {}, "마지막으로 저장하기 전의 설정으로 돌아가요. 여러 번 누르면 더 이전으로 돌아가요."),
+    dirty ? h("p", { class: "small" }, "지금 화면에서 바꾸고 저장하지 않은 내용은 사라져요.") : null);
+  const ok = await dialog("이전 설정으로 되돌릴까요?", body, [{ text: "취소", value: false }, { text: "되돌리기", value: true, kind: "primary" }]);
+  if (!ok) return;
+  const res = await api("/api/rollback", {});
+  await load(false);
+  notice("ok", res.message);
+  toast(res.message, "ok");
+});
+
+function addAccount(form) {
+  withBusy(async () => {
+    const id = (form.id || "").trim();
+    if (!/^[a-z0-9][a-z0-9_-]{0,39}$/i.test(id)) throw { error: "영문 이름은 영문, 숫자, -, _ 로 40자 안에서 지어 주세요. (예: claude-main)", problems: [] };
+    const provider = form.engine === "claude-code" ? "anthropic" : form.provider;
+    const label = form.label.trim() || (form.engine === "claude-code" ? "Claude 구독" : PROVIDER_NAMES[provider] || provider);
+    const res = await api("/api/accounts", { id, engine: form.engine, provider, label });
+    await load(true);
+    notice("ok", res.message);
+    toast(res.message, "ok");
+  });
+}
+
+function removeAccount(a) {
+  withBusy(async () => {
+    const ok = await dialog("'" + a.label + "' 계정을 지울까요?", h("p", {}, "목록에서만 지우고, 로그인 정보 폴더는 남겨 둬요."),
+      [{ text: "취소", value: false }, { text: "삭제", value: true, kind: "primary danger" }]);
+    if (!ok) return;
+    const res = await api("/api/accounts/remove", { id: a.id });
+    await load(true);
+    notice("ok", res.message);
+    toast(res.message, "ok");
+  });
+}
+
+function resetAccount(a) {
+  withBusy(async () => {
+    const res = await api("/api/accounts/reset", { id: a.id });
+    await load(true);
+    toast(res.message, "ok");
+  });
+}
+
+function loginAccount(a) {
+  withBusy(async () => {
+    const res = await api("/api/accounts/login", { id: a.id });
+    const body = h("div", {}, h("p", {}, res.message));
+    const buttons = [{ text: "확인", value: null, kind: "primary" }];
+    if (!res.launched && res.commandText) {
+      body.append(h("code", { class: "cmd" }, res.commandText));
+      buttons.unshift({ text: "명령 복사", value: "copy" });
+    }
+    body.append(h("p", { class: "small" }, "로그인을 마치고 이 화면으로 돌아오면 상태가 새로 고쳐져요."));
+    const v = await dialog("로그인", body, buttons);
+    if (v === "copy") {
+      try { await navigator.clipboard.writeText(res.commandText); toast("명령을 복사했어요.", "ok"); }
+      catch (e) { toast("복사하지 못했어요. 직접 골라서 복사해 주세요.", "bad"); }
+    }
+  });
+}
+
+// 로그인 창에서 돌아오면 계정 상태를 새로 읽는다.
+window.addEventListener("focus", () => { if (S && !busy) load(true).catch(() => {}); });
+window.addEventListener("beforeunload", (e) => {
+  if (draft && countChanges(buildChanges()) > 0) { e.preventDefault(); e.returnValue = ""; }
+});
+
+load(false).catch((e) => {
+  $("app").replaceChildren();
+  showError(e);
+  // 설정이 깨졌을 때도 되돌리기는 누를 수 있게 한다.
+  S = { canRollback: true };
+  refreshBar();
+});
+</script>
+</body>
+</html>

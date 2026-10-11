@@ -1,0 +1,11 @@
+{
+  "name": "@nexus/settings-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "src/server.ts",
+  "dependencies": {
+    "@nexus/shared": "workspace:*",
+    "yaml": "^2.6.0"
+  }
+}
