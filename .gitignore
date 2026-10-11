@@ -3,3 +3,4 @@ dist/
 *.log
 .nexus-tmp/
 packages/paperclip-adapter/config/
+apps/nexus-server/config/

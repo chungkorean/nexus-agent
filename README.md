@@ -6,7 +6,7 @@ Paperclip의 "개발 부서" 에이전트에 이슈가 배정되면, Nexus가 �
 
 설계 문서: [docs/architecture.md](docs/architecture.md)
 
-## 1단계에서 되는 것
+## 되는 것
 
 - **자동 호출**: Paperclip 외부 어댑터 `nexus_dispatch`가 하트비트마다 배정된 이슈를 처리합니다.
 - **분류**: 코드 수정뿐 아니라 터미널 명령, 엑셀 파싱, APK 디컴파일 같은 로컬 작업도 "실행 작업"으로 봅니다. 라벨(`code`, `비코딩`)이 있으면 라벨이 우선합니다.
@@ -15,7 +15,11 @@ Paperclip의 "개발 부서" 에이전트에 이슈가 배정되면, Nexus가 �
 - **비코딩 위임**: 기획·세계관·홍보 문구 같은 작업은 지정한 에이전트(예: Hermes)에게 하위 이슈로 넘깁니다.
 - **결과 보고**: 요약, 바뀐 파일, 토큰·비용을 이슈 댓글로 남기고 Paperclip 비용 집계에 보고합니다.
 
-작업 분해와 병렬 실행(2단계), 결과 병합(3단계)은 아직 없습니다.
+- **작업 분해와 병렬 실행** (2단계): 큰 이슈는 AI가 하위 작업으로 나누고, Paperclip 하위 이슈로 보여 주며, 여러 모델과 계정에 동시에 맡깁니다. 각 결과는 `nexus/<이슈>/<작업>` 브랜치에 커밋으로 남습니다.
+- **여러 계정**: 같은 서비스 계정을 여러 개 등록해 두고, 한도에 걸린 계정은 잠시 쉬게 한 뒤 다른 계정으로 넘어갑니다.
+- **쉬운 설정 화면**: 작업별 담당 AI, 작업 나누기, 계정 로그인을 브라우저 화면에서 바꿉니다.
+
+브랜치 결과를 자동으로 합치는 것(3단계)은 아직 없습니다. 상위 이슈 댓글에 합치는 `git merge` 명령을 남깁니다.
 
 ## Windows에 설치하기
 
@@ -72,26 +76,39 @@ Invoke-RestMethod -Method Post -Uri http://localhost:3100/api/adapters/install -
 2. **비서(선택)**: 어댑터 `hermes_local`로 Hermes 에이전트를 만들고, 그 ID를 위 `nonCodingAgentId`에 넣습니다.
 3. 에이전트 설정 화면의 환경 점검 버튼으로 작업 폴더, 설정 파일, `opencode`, `claude` 실행 여부를 확인합니다.
 
-### 5. 모델 정책 바꾸기
+### 5. 설정 화면에서 바꾸기
 
-기본 설정은 어댑터 패키지에 들어 있습니다. 고치려면 `config` 폴더를 `%LOCALAPPDATA%\Nexus\config`로 복사한 뒤 그 파일을 고치세요. 다음 실행부터 적용됩니다.
+`scripts\nexus-settings.cmd`를 두 번 누르거나 `pnpm settings`를 실행하면 브라우저에 설정 화면(http://127.0.0.1:3200)이 열립니다.
 
-- `models.yaml`: 별칭(`smart`, `coder`, `fast`, `longctx`, `reviewer`, `local`)마다 엔진과 모델
-- `routing.yaml`: 작업 종류별 별칭 순서, 로컬 모델 우선 여부, 대체 횟수
+- **작업별 담당 AI**: 구현, 테스트, 리뷰 같은 작업마다 1순위와 2순위 AI를 고릅니다.
+- **작업 나누기**: 큰 이슈만 나눌지, 항상 나눌지, 나누지 않을지와 동시에 몇 개까지 돌릴지 정합니다.
+- **계정**: 계정을 추가하고 "로그인 창 열기"로 로그인합니다. 한도로 쉬는 계정과 쉬는 시각이 보입니다.
+- **AI 모델**: 각 AI가 어떤 계정을 쓸지 고릅니다. 모델 이름은 "고급"에 있습니다.
 
-OpenCode 모델 이름은 `opencode models`로 확인한 값을 넣어야 합니다. 화면에서 고치는 설정 편집기는 2단계에서 만듭니다.
+저장하기 전에 "미리 보기"로 바뀌는 내용을 확인할 수 있고, 잘못 바꿨으면 "되돌리기"를 누르세요. 다음 작업부터 적용됩니다.
+
+설정 파일은 `%LOCALAPPDATA%\Nexus\config`에 있습니다 (`models.yaml`, `routing.yaml`, `accounts.yaml`). 처음 화면을 열 때 기본 설정을 복사해 둡니다. 직접 고쳐도 되고, 주석에 설명이 있습니다. OpenCode 모델 이름은 `opencode models`로 확인한 값을 넣어야 합니다.
+
+### 6. 작업 나누기 라벨
+
+- `분해` 또는 `plan`: 작은 이슈라도 나눠서 실행
+- `단일` 또는 `no-plan`: 큰 이슈라도 한 번에 실행
+
+작업 나누기를 쓰려면 작업 폴더가 커밋이 하나 이상 있는 git 저장소여야 합니다. 아니면 하위 작업을 같은 폴더에서 하나씩 실행합니다. 커밋하지 않은 변경은 하위 작업에 들어가지 않으니, 맡기기 전에 커밋해 두세요.
 
 ## 저장소 구조
 
 ```
 packages/
-  shared/                 공통 타입, 설정 읽기, 프로세스 실행(Windows 대응), git 비교
-  core/                   분류기, 라우터, 실행 지시문
+  shared/                 공통 타입, 설정 읽기, 계정 상태, 프로세스 실행(Windows 대응), git·worktree
+  core/                   분류기, 라우터, 작업 분해(플래너), 실행 지시문
   executor-opencode/      opencode serve를 띄워 작업마다 모델을 골라 실행
   executor-claude-code/   claude -p로 구독 계정 실행 (계정 분리는 CLAUDE_CONFIG_DIR)
   paperclip-client/       Paperclip 이슈 API
   paperclip-adapter/      Paperclip 외부 어댑터 nexus_dispatch (빌드 결과가 dist/)
-config/                   기본 models.yaml, routing.yaml
+apps/
+  nexus-server/           쉬운 설정 화면 (127.0.0.1:3200)
+config/                   기본 models.yaml, routing.yaml, accounts.yaml
 scripts/                  어댑터 빌드, Windows 환경 점검
 tests/                    가짜 Paperclip·OpenCode·Claude Code로 돌리는 테스트
 ```
@@ -104,3 +121,5 @@ tests/                    가짜 Paperclip·OpenCode·Claude Code로 돌리는 �
 - 실제 Paperclip이 이 어댑터를 로컬 경로로 설치·실행하는지 (계약은 `@paperclipai/adapter-utils` 2026.1005.0 타입에 맞춤)
 - 이슈 API의 라벨 응답 형식 (라벨 이름을 못 읽으면 키워드 분류만 동작)
 - Windows에서 계정별 폴더 분리(`CLAUDE_CONFIG_DIR`, `XDG_DATA_HOME`)가 되는지
+- 하위 이슈 상태 값(`in_progress`, `done`, `blocked`)을 Paperclip이 그대로 받는지 (안 받으면 상태만 안 바뀌고 댓글은 남음)
+- Paperclip의 실행 시간 제한이 하위 작업 여러 개를 도는 동안 끊지 않는지

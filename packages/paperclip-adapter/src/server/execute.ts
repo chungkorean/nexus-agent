@@ -1,30 +1,31 @@
 import { existsSync, statSync } from "node:fs";
-import { buildPrompt, classify, planRoutes } from "@nexus/core";
+import { buildPrompt, classify, planRoutes, shouldPlan } from "@nexus/core";
 import { ClaudeCodeExecutor } from "@nexus/executor-claude-code";
 import { OpenCodeExecutor } from "@nexus/executor-opencode";
 import { PaperclipClient, labelNames, type PaperclipIssue } from "@nexus/paperclip-client";
-import { loadConfig, type Classification, type Engine, type Executor, type NexusConfig, type Route, type RunOutcome } from "@nexus/shared";
+import { AccountState, loadConfig, type Classification, type Engine, type Executor, type NexusConfig } from "@nexus/shared";
 import type { AdapterExecutionContext, AdapterExecutionResult } from "../adapter-types.ts";
 import { ADAPTER_TYPE, bundledConfigDir, readSettings, type DispatchSettings } from "../settings.ts";
+import { makePlan, runPlanned } from "./planned.ts";
+import { firstLine, outcomeLines, routeLine, runRoutes, safeComment, sumUsage, type Attempt } from "./run.ts";
 
 /** 테스트에서 가짜 실행기·클라이언트로 바꿔 끼울 수 있게 의존성을 모아 둔다. */
 export interface DispatchDeps {
   loadConfig: (settings: DispatchSettings) => NexusConfig;
   executors: (settings: DispatchSettings) => Record<Engine, Executor>;
   client: (ctx: AdapterExecutionContext) => PaperclipClient;
+  accountState: (settings: DispatchSettings) => AccountState;
 }
 
 export const defaultDeps: DispatchDeps = {
-  loadConfig: (s) => loadConfig(s.configDir, bundledConfigDir()),
+  loadConfig: (s) => loadConfig(s.configDir, bundledConfigDir(), s.accountsDir),
   executors: (s) => ({
     opencode: new OpenCodeExecutor({ command: s.opencodeCommand }),
     "claude-code": new ClaudeCodeExecutor({ command: s.claudeCommand }),
   }),
   client: (ctx) => new PaperclipClient(PaperclipClient.resolveBaseUrl(), ctx.authToken, ctx.runId),
+  accountState: (s) => new AccountState(s.stateDir),
 };
-
-const ENGINE_LABEL: Record<Engine, string> = { opencode: "OpenCode", "claude-code": "Claude Code" };
-const PROVIDER_ERRORS = new Set(["provider_quota", "provider_auth", "provider_unavailable", "spawn_failed"]);
 
 export async function executeDispatch(ctx: AdapterExecutionContext, deps: DispatchDeps = defaultDeps): Promise<AdapterExecutionResult> {
   const log = (line: string) => ctx.onLog("stdout", `[nexus] ${line}\n`);
@@ -72,35 +73,52 @@ export async function executeDispatch(ctx: AdapterExecutionContext, deps: Dispat
     return failed(message, "cwd_missing");
   }
 
-  const routes = planRoutes(classification, config);
-  if (!routes.length) return failed(`${classification.taskType} 작업에 쓸 모델이 설정에 없어요.`, "no_route");
-
-  const prompt = buildPrompt({ identifier: issue.identifier, title: issue.title, description: issue.description, classification, cwd: settings.cwd });
+  const cwd = settings.cwd;
   const executors = deps.executors(settings);
-  const attempts: Array<{ route: Route; outcome: RunOutcome }> = [];
+  const state = deps.accountState(settings);
+  const labels = labelNames(issue);
 
-  for (const route of routes) {
-    await log(`${ENGINE_LABEL[route.engine]}로 실행: 별칭 ${route.alias}, 모델 ${route.model}`);
-    await ctx.onMeta?.({
-      adapterType: ADAPTER_TYPE,
-      command: route.engine === "opencode" ? "opencode serve" : "claude -p",
-      cwd: settings.cwd,
-      commandNotes: [`alias=${route.alias}`, `model=${route.model}`, ...classification.reasons],
-      prompt,
-    });
-    const outcome = await executors[route.engine].run({
-      cwd: settings.cwd,
-      prompt,
-      model: route.model,
-      accountDir: route.accountDir,
-      timeoutSec: settings.timeoutSec,
-      onLog: ctx.onLog,
-      signal: ctx.signal,
-    });
-    attempts.push({ route, outcome });
-    // 공급자 쪽 문제일 때만 다음 별칭으로 넘어간다. 작업 자체가 실패했으면 다른 모델로 반복하지 않는다.
-    if (outcome.ok || !outcome.errorFamily || !PROVIDER_ERRORS.has(outcome.errorFamily)) break;
-    await log(`${route.alias} 실패(${outcome.errorFamily}): ${outcome.errorMessage}. 다음 순서로 넘어가요.`);
+  // 3. 큰 이슈는 하위 작업으로 나눠 여러 AI에게 동시에 맡긴다.
+  const planDecision = shouldPlan({ title: issue.title, description: issue.description, labels }, config.routing.planning);
+  let planAttempts: Attempt[] = [];
+  if (planDecision.plan) {
+    await log(`작업 나누기: ${planDecision.reason}`);
+    const env = { ctx, client, issue, classification, config, settings: { ...settings, cwd }, executors, state, log };
+    const planned = await makePlan(env);
+    if (planned.plan) return runPlanned(env, planned.plan, planned.attempts);
+    planAttempts = planned.attempts;
+    await log(`나누지 않고 한 번에 실행해요 (${planned.reason}).`);
+  }
+
+  // 4. 한 번에 실행
+  const routes = planRoutes(classification, config, { isCoolingDown: (id) => state.isCoolingDown(id) });
+  if (!routes.length) {
+    const message = `${classification.taskType} 작업에 쓸 모델이 설정에 없거나, 계정이 모두 한도로 쉬는 중이에요.`;
+    await safeComment(client, issue.id, `Nexus가 작업을 시작하지 못했어요. ${message}`);
+    return failed(message, "no_route");
+  }
+
+  const prompt = buildPrompt({ identifier: issue.identifier, title: issue.title, description: issue.description, classification, cwd });
+  const attempts = await runRoutes(
+    routes,
+    { cwd, prompt, timeoutSec: settings.timeoutSec, onLog: ctx.onLog, signal: ctx.signal },
+    executors,
+    state,
+    log,
+    async (route) => {
+      await ctx.onMeta?.({
+        adapterType: ADAPTER_TYPE,
+        command: route.engine === "opencode" ? "opencode serve" : "claude -p",
+        cwd,
+        commandNotes: [`alias=${route.alias}`, `model=${route.model}`, ...(route.accountId ? [`account=${route.accountId}`] : []), ...classification.reasons],
+        prompt,
+      });
+    },
+  );
+  if (!attempts.length) {
+    const message = "쓸 수 있는 계정이 모두 한도로 쉬는 중이에요.";
+    await safeComment(client, issue.id, `Nexus가 작업을 시작하지 못했어요. ${message}`);
+    return failed(message, "no_route");
   }
 
   const last = attempts[attempts.length - 1]!;
@@ -109,12 +127,13 @@ export async function executeDispatch(ctx: AdapterExecutionContext, deps: Dispat
     await client.updateIssue(issue.id, { status: "done" }).catch((err) => log(`상태 변경 실패: ${(err as Error).message}`));
   }
 
-  const totalCost = attempts.reduce((sum, a) => sum + (a.outcome.costUsd ?? 0), 0);
+  const all = [...planAttempts, ...attempts];
+  const totalCost = all.reduce((sum, a) => sum + (a.outcome.costUsd ?? 0), 0);
   const result: AdapterExecutionResult = {
     exitCode: last.outcome.ok ? 0 : 1,
     signal: null,
     timedOut: last.outcome.timedOut ?? false,
-    usage: last.outcome.usage,
+    usage: planAttempts.length ? sumUsage(all.map((a) => a.outcome)) : last.outcome.usage,
     usageBasis: "per_run",
     sessionId: last.outcome.sessionId ?? null,
     provider: last.outcome.provider ?? null,
@@ -126,7 +145,7 @@ export async function executeDispatch(ctx: AdapterExecutionContext, deps: Dispat
     errorFamily: last.outcome.errorFamily === "provider_quota" ? "provider_quota" : null,
     resultJson: {
       classification,
-      attempts: attempts.map((a) => ({ alias: a.route.alias, engine: a.route.engine, model: a.route.model, ok: a.outcome.ok, error: a.outcome.errorMessage ?? null })),
+      attempts: attempts.map((a) => ({ alias: a.route.alias, account: a.route.accountId ?? null, engine: a.route.engine, model: a.route.model, ok: a.outcome.ok, error: a.outcome.errorMessage ?? null })),
       changedFiles: last.outcome.changedFiles,
     },
   };
@@ -163,43 +182,15 @@ async function delegate(
   }
 }
 
-export function reportComment(c: Classification, attempts: Array<{ route: Route; outcome: RunOutcome }>): string {
-  const last = attempts[attempts.length - 1]!;
-  const o = last.outcome;
-  const lines: string[] = [];
-  lines.push(o.ok ? `### Nexus 실행 결과: 완료` : `### Nexus 실행 결과: 실패`);
-  lines.push("");
-  lines.push(`- 실행: ${ENGINE_LABEL[last.route.engine]} · ${last.route.model} (별칭 \`${last.route.alias}\`)`);
-  lines.push(`- 분류: ${c.taskType}, 위험도 ${c.risk === "high" ? "높음" : "낮음"} (${c.reasons.join("; ")})`);
-  if (attempts.length > 1) {
-    const prior = attempts.slice(0, -1).map((a) => `${a.route.alias}(${a.outcome.errorFamily})`).join(", ");
-    lines.push(`- 대체 실행: ${prior} 실패 후 ${last.route.alias}로 넘어감`);
-  }
-  if (o.usage) lines.push(`- 토큰: 입력 ${o.usage.inputTokens}, 출력 ${o.usage.outputTokens}${o.costUsd ? `, 비용 $${o.costUsd.toFixed(4)}` : ""}`);
-  lines.push("");
-  if (o.ok) {
-    lines.push(o.summary);
-  } else {
-    lines.push(`오류: ${o.errorMessage}`);
-  }
-  if (o.changedFiles.length) {
-    lines.push("", "| 바뀐 파일 | 추가 | 삭제 |", "| --- | --- | --- |");
-    for (const f of o.changedFiles.slice(0, 50)) lines.push(`| ${f.file} | ${f.additions ?? f.status ?? ""} | ${f.deletions ?? ""} |`);
-    if (o.changedFiles.length > 50) lines.push(`| 외 ${o.changedFiles.length - 50}개 | | |`);
-  }
-  return lines.join("\n");
-}
-
-async function safeComment(client: PaperclipClient, issueId: string, body: string): Promise<void> {
-  try {
-    await client.addComment(issueId, body);
-  } catch {
-    /* 댓글 실패가 실행 결과를 덮지 않게 한다. 실행 로그에는 남아 있다. */
-  }
-}
-
-function firstLine(text: string): string {
-  return text.split(/\r?\n/).find((l) => l.trim())?.trim().slice(0, 200) ?? "";
+export function reportComment(c: Classification, attempts: Attempt[]): string {
+  const o = attempts[attempts.length - 1]!.outcome;
+  return [
+    o.ok ? `### Nexus 실행 결과: 완료` : `### Nexus 실행 결과: 실패`,
+    "",
+    `- 실행: ${routeLine(attempts[attempts.length - 1]!.route)}`,
+    `- 분류: ${c.taskType}, 위험도 ${c.risk === "high" ? "높음" : "낮음"} (${c.reasons.join("; ")})`,
+    ...outcomeLines(attempts),
+  ].join("\n");
 }
 
 function ok(extra: Partial<AdapterExecutionResult>): AdapterExecutionResult {

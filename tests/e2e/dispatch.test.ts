@@ -66,6 +66,7 @@ beforeEach(() => {
   process.env.FAKE_CLAUDE_LOG = path.join(tmp, "claude.log");
   process.env.FAKE_OPENCODE_LOG = path.join(tmp, "opencode.log");
   process.env.ANTHROPIC_API_KEY = "sk-should-not-leak";
+  process.env.NEXUS_HOME = path.join(tmp, "nexus-home");
   delete process.env.FAKE_CLAUDE_MODE;
   delete process.env.FAKE_OPENCODE_MODE;
 });

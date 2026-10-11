@@ -29,8 +29,21 @@ export interface ModelAlias {
   model: string;
   /** 화면 표시용 이름 */
   label?: string;
-  /** Claude Code 설정 폴더(CLAUDE_CONFIG_DIR) 또는 OpenCode 데이터 폴더(XDG_DATA_HOME). 계정 분리용 */
+  /** 계정 폴더를 직접 지정할 때. 보통은 accounts로 계정 ID를 지정한다. */
   accountDir?: string;
+  /** accounts.yaml의 계정 ID. 여러 개면 앞에서부터 쓰고 한도에 걸린 계정은 건너뛴다. */
+  accounts?: string[];
+}
+
+/** 로그인해 둔 AI 계정 하나. 계정마다 폴더를 따로 두어 같은 서비스 계정도 여러 개 쓸 수 있다. */
+export interface Account {
+  id: string;
+  engine: Engine;
+  /** 화면 표시용: anthropic, openai, google, github-copilot, ollama 등 */
+  provider: string;
+  label: string;
+  /** Claude Code는 CLAUDE_CONFIG_DIR, OpenCode는 XDG_DATA_HOME으로 넘기는 폴더 */
+  dir: string;
 }
 
 export interface Route {
@@ -38,6 +51,24 @@ export interface Route {
   engine: Engine;
   model: string;
   accountDir?: string;
+  accountId?: string;
+  accountLabel?: string;
+}
+
+/** 플래너가 나눈 하위 작업 하나 */
+export interface Subtask {
+  key: string;
+  title: string;
+  instructions: string;
+  taskType: TaskType;
+  /** 이 작업이 주로 건드릴 파일·폴더. 겹치면 동시에 돌리지 않는다. */
+  files: string[];
+  dependsOn: string[];
+}
+
+export interface Plan {
+  summary: string;
+  subtasks: Subtask[];
 }
 
 export interface UsageSummary {
@@ -58,6 +89,8 @@ export type ErrorFamily = "provider_quota" | "provider_auth" | "provider_unavail
 
 export interface RunRequest {
   cwd: string;
+  /** true면 파일을 고치지 않고 읽기만 한다 (작업 분해용) */
+  readOnly?: boolean;
   prompt: string;
   model: string;
   accountDir?: string;

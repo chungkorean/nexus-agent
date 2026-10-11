@@ -1,8 +1,9 @@
 import { existsSync } from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import type { CommandSpec } from "@nexus/shared";
+import { defaultAccountsDir, defaultConfigDir, defaultStateDir, defaultWorktreeRoot, type CommandSpec } from "@nexus/shared";
+
+export { defaultConfigDir };
 
 export const ADAPTER_TYPE = "nexus_dispatch";
 
@@ -15,6 +16,12 @@ export interface DispatchSettings {
   claudeCommand: CommandSpec;
   timeoutSec: number;
   markDoneOnSuccess: boolean;
+  /** 계정 한도 상태 파일을 두는 폴더 */
+  stateDir: string;
+  /** 계정 로그인 폴더의 상위 폴더 (accounts.yaml에서 dir을 비운 계정) */
+  accountsDir: string;
+  /** 병렬 실행용 worktree 폴더 */
+  worktreeRoot: string;
 }
 
 function str(v: unknown): string | null {
@@ -24,13 +31,6 @@ function str(v: unknown): string | null {
 function command(v: unknown, fallback: string): CommandSpec {
   if (Array.isArray(v) && v.every((x) => typeof x === "string") && v.length) return v as string[];
   return str(v) ?? fallback;
-}
-
-/** 사용자가 고치는 설정 폴더. Windows는 %LOCALAPPDATA%\Nexus\config */
-export function defaultConfigDir(env: NodeJS.ProcessEnv = process.env): string {
-  if (env.NEXUS_CONFIG_DIR) return env.NEXUS_CONFIG_DIR;
-  if (process.platform === "win32" && env.LOCALAPPDATA) return path.join(env.LOCALAPPDATA, "Nexus", "config");
-  return path.join(env.XDG_CONFIG_HOME ?? path.join(os.homedir(), ".config"), "nexus");
 }
 
 /** 어댑터 패키지에 함께 들어 있는 기본 설정 폴더. 사용자 설정 파일이 없을 때 쓴다. */
@@ -53,5 +53,8 @@ export function readSettings(config: Record<string, unknown>, context: Record<st
     claudeCommand: command(config.claudeCommand, "claude"),
     timeoutSec: Number.isFinite(timeout) && timeout > 0 ? timeout : 1800,
     markDoneOnSuccess: config.markDoneOnSuccess === true,
+    stateDir: str(config.stateDir) ?? defaultStateDir(),
+    accountsDir: str(config.accountsDir) ?? defaultAccountsDir(),
+    worktreeRoot: str(config.worktreeRoot) ?? defaultWorktreeRoot(),
   };
 }

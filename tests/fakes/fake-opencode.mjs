@@ -36,11 +36,20 @@ const server = createServer(async (req, res) => {
   const msg = url.pathname.match(/^\/session\/([^/]+)\/message$/);
   if (req.method === "POST" && msg) {
     const parsed = JSON.parse(body);
-    log({ kind: "prompt", directory, model: parsed.model, text: parsed.parts?.[0]?.text, env: { XDG_DATA_HOME: process.env.XDG_DATA_HOME ?? null, config: process.env.OPENCODE_CONFIG_CONTENT ?? null } });
+    const text = parsed.parts?.[0]?.text ?? "";
+    const isPlan = text.includes("## Nexus 작업 분해 요청");
+    const startedAt = Date.now();
+    const delay = Number(process.env.FAKE_OPENCODE_DELAY_MS ?? 0);
+    if (delay && !isPlan) await new Promise((r) => setTimeout(r, delay));
+    log({ kind: "prompt", directory, model: parsed.model, agent: parsed.agent ?? null, text, startedAt, endedAt: Date.now(), env: { XDG_DATA_HOME: process.env.XDG_DATA_HOME ?? null, config: process.env.OPENCODE_CONFIG_CONTENT ?? null } });
     if (process.env.FAKE_OPENCODE_MODE === "quota") {
       return json(200, { info: { cost: 0, tokens: { input: 5, output: 0, cache: { read: 0 } }, error: { name: "APIError", data: { message: "rate limit exceeded", statusCode: 429 } } }, parts: [] });
     }
-    writeFileSync(path.join(directory, "opencode-output.txt"), "made by fake opencode\n");
+    if (isPlan) {
+      return json(200, { info: { cost: 0.001, tokens: { input: 3, output: 2 } }, parts: [{ type: "text", text: "```json\n" + (process.env.FAKE_OPENCODE_PLAN ?? "{}") + "\n```" }] });
+    }
+    const key = text.match(/하위 작업 키: (\S+)/)?.[1];
+    if (!parsed.agent) writeFileSync(path.join(directory, key ? `${key}.txt` : "opencode-output.txt"), "made by fake opencode\n");
     return json(200, {
       info: { cost: 0.0123, tokens: { input: 120, output: 45, cache: { read: 30 } } },
       parts: [{ type: "text", text: "1. 가짜 OpenCode가 파일을 만들었어요.\n2. opencode-output.txt\n3. 확인 없음\n4. 없음" }],

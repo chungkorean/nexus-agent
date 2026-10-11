@@ -32,7 +32,7 @@ export class ClaudeCodeExecutor implements Executor {
     const before = await gitSnapshot(req.cwd);
     const res = await runProcess(
       this.opts.command ?? "claude",
-      ["-p", "--output-format", "json", "--model", req.model, "--dangerously-skip-permissions"],
+      claudeArgs(req),
       {
         cwd: req.cwd,
         env: { ...req.env, ...(req.accountDir ? { CLAUDE_CONFIG_DIR: req.accountDir } : {}) },
@@ -75,6 +75,13 @@ export class ClaudeCodeExecutor implements Executor {
     }
     return { ...common, ok: true, summary: String(parsed.result ?? "").trim() || "(응답 없음)" };
   }
+}
+
+/** 읽기 전용이면 승인 없이 쓸 수 있는 읽기 도구만 남기고, 고치는 도구와 터미널은 막는다. */
+export function claudeArgs(req: Pick<RunRequest, "model" | "readOnly">): string[] {
+  const args = ["-p", "--output-format", "json", "--model", req.model];
+  if (req.readOnly) return [...args, "--disallowedTools", "Edit", "Write", "MultiEdit", "NotebookEdit", "Bash"];
+  return [...args, "--dangerously-skip-permissions"];
 }
 
 interface ClaudeResult {

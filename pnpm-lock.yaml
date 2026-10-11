@@ -38,6 +38,18 @@ importers:
       vitest:
         specifier: ^3.0.0
         version: 3.2.7(@types/node@22.20.5)(yaml@2.9.1)
+      yaml:
+        specifier: ^2.6.0
+        version: 2.9.1
+
+  apps/nexus-server:
+    dependencies:
+      '@nexus/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
+      yaml:
+        specifier: ^2.6.0
+        version: 2.9.1
 
   packages/core:
     dependencies:

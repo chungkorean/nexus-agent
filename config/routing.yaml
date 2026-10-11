@@ -23,3 +23,14 @@ taskTypes:
   research:  [longctx, smart]
   ops:       [coder, smart]     # 터미널·파일 작업 (스크립트 실행, 엑셀 파싱, 디컴파일 등)
   review:    [reviewer, smart]
+
+# 큰 이슈를 여러 하위 작업으로 나눠 여러 AI에게 동시에 맡기는 설정
+planning:
+  # auto: 할 일 목록이 3개 이상이거나 설명이 긴 이슈만 나눔 / always: 항상 / never: 나누지 않음
+  mode: auto
+  # 한 이슈를 최대 몇 개로 나눌지
+  maxSubtasks: 5
+  # 동시에 몇 개까지 실행할지 (구독 한도가 빨리 줄면 낮추세요)
+  concurrency: 3
+  # 작업을 나누는 AI (별칭)
+  planner: smart

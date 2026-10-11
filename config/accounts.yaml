@@ -1,0 +1,23 @@
+# 로그인해 둔 AI 계정 목록
+# 같은 서비스 계정을 여러 개 쓸 수 있도록 계정마다 로그인 폴더를 따로 둡니다.
+# 보통은 설정 화면(pnpm settings)의 "계정" 칸에서 추가하고 로그인하세요.
+#
+# - engine: claude-code(Claude 구독 계정) 또는 opencode(그 밖의 공급자)
+# - provider: 화면 표시용 (anthropic, openai, google, github-copilot, ollama 등)
+# - dir: 로그인 폴더. 비워 두면 %LOCALAPPDATA%\Nexus\accounts\<계정 이름>
+#
+# models.yaml의 별칭에 accounts: [claude-main, claude-sub]처럼 적으면
+# 앞 계정부터 쓰고, 한도에 걸린 계정은 잠시 쉬게 한 뒤 다음 계정으로 넘어갑니다.
+# 계정을 하나도 적지 않으면 각 프로그램에 평소 로그인한 계정을 씁니다.
+#
+# 예시:
+# accounts:
+#   claude-main:
+#     engine: claude-code
+#     provider: anthropic
+#     label: "Claude 개인 구독"
+#   openai-main:
+#     engine: opencode
+#     provider: openai
+#     label: "ChatGPT 계정"
+accounts: {}

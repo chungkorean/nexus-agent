@@ -10,6 +10,7 @@
   "packageManager": "pnpm@10.28.0",
   "scripts": {
     "build": "node scripts/build-adapter.mjs",
+    "settings": "node scripts/build-settings.mjs && node apps/nexus-server/dist/main.mjs",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
@@ -23,7 +24,8 @@
     "@types/node": "^22.10.0",
     "esbuild": "^0.25.0",
     "typescript": "^5.7.0",
-    "vitest": "^3.0.0"
+    "vitest": "^3.0.0",
+    "yaml": "^2.6.0"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

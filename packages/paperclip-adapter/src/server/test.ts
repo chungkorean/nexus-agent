@@ -1,5 +1,5 @@
 import { existsSync, statSync } from "node:fs";
-import { ConfigError, loadConfig, runProcess, type CommandSpec } from "@nexus/shared";
+import { AccountState, ConfigError, loadConfig, runProcess, type CommandSpec } from "@nexus/shared";
 import type { AdapterEnvironmentCheck, AdapterEnvironmentTestContext, AdapterEnvironmentTestResult } from "../adapter-types.ts";
 import { ADAPTER_TYPE, bundledConfigDir, readSettings } from "../settings.ts";
 
@@ -19,11 +19,24 @@ export async function testDispatchEnvironment(ctx: AdapterEnvironmentTestContext
   let usesOpenCode = true;
   let usesClaude = true;
   try {
-    const config = loadConfig(s.configDir, bundledConfigDir());
+    const config = loadConfig(s.configDir, bundledConfigDir(), s.accountsDir);
     const engines = new Set(Object.values(config.aliases).map((a) => a.engine));
     usesOpenCode = engines.has("opencode");
     usesClaude = engines.has("claude-code");
     checks.push({ code: "config_ok", level: "info", message: `설정 파일을 읽었어요 (별칭 ${Object.keys(config.aliases).length}개)`, detail: s.configDir });
+    const state = new AccountState(s.stateDir);
+    for (const acc of Object.values(config.accounts)) {
+      const cooldown = state.get(acc.id);
+      if (!existsSync(acc.dir)) {
+        checks.push({ code: "account_not_logged_in", level: "warn", message: `계정 ${acc.label}: 아직 로그인하지 않았어요.`, detail: acc.dir, hint: "설정 화면(pnpm settings)의 계정 칸에서 로그인 창을 열어 주세요." });
+      } else if (cooldown) {
+        checks.push({ code: "account_cooling_down", level: "warn", message: `계정 ${acc.label}: ${new Date(cooldown.until).toLocaleString("ko-KR")}까지 쉬는 중 (${cooldown.reason})` });
+      } else {
+        checks.push({ code: "account_ok", level: "info", message: `계정 ${acc.label}: 사용 가능` });
+      }
+    }
+    const modeLabel = { auto: "큰 이슈만", always: "항상", never: "안 함" }[config.routing.planning.mode];
+    checks.push({ code: "planning", level: "info", message: `작업 나누기: ${modeLabel}, 동시 실행 ${config.routing.planning.concurrency}개` });
   } catch (err) {
     checks.push({
       code: "config_invalid",

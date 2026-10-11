@@ -2,3 +2,6 @@ export * from "./types.ts";
 export * from "./config.ts";
 export * from "./process.ts";
 export * from "./git.ts";
+export * from "./paths.ts";
+export * from "./state.ts";
+export * from "./worktree.ts";

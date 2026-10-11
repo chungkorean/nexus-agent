@@ -1,7 +1,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { parse } from "yaml";
-import type { Engine, ModelAlias, TaskType } from "./types.ts";
+import { defaultAccountsDir } from "./paths.ts";
+import type { Account, Engine, ModelAlias, TaskType } from "./types.ts";
 
 export interface RoutingPolicy {
   /** 분류 신호가 없거나 비길 때의 판정. 개발 부서에 배정된 이슈라면 execute가 자연스럽다. */
@@ -16,12 +17,27 @@ export interface RoutingPolicy {
   highRiskAlias: string;
   /** 공급자 오류일 때 대체 순서에서 몇 번까지 넘어갈지 */
   maxFallbacks: number;
+  planning: PlanningPolicy;
+}
+
+export interface PlanningPolicy {
+  /** auto: 큰 이슈만 나눔, always: 항상 나눔, never: 나누지 않음 */
+  mode: "auto" | "always" | "never";
+  /** 한 이슈를 최대 몇 개로 나눌지 */
+  maxSubtasks: number;
+  /** 동시에 몇 개까지 실행할지 */
+  concurrency: number;
+  /** 작업을 나누는 별칭. 실패하면 design 순서를 따른다. */
+  planner: string;
 }
 
 export interface NexusConfig {
   aliases: Record<string, ModelAlias>;
+  accounts: Record<string, Account>;
   routing: RoutingPolicy;
 }
+
+export const PLANNING_MODES = ["auto", "always", "never"] as const;
 
 const ENGINES: Engine[] = ["opencode", "claude-code"];
 const TASK_TYPES: TaskType[] = ["design", "implement", "refactor", "test", "review", "docs", "research", "ops"];
@@ -32,13 +48,22 @@ export class ConfigError extends Error {}
  * config 폴더의 models.yaml과 routing.yaml을 읽는다.
  * 파일이 없으면 저장소에 들어 있는 기본 설정을 쓴다.
  */
-export function loadConfig(configDir: string, fallbackDir?: string): NexusConfig {
+export function loadConfig(configDir: string, fallbackDir?: string, accountsDir: string = defaultAccountsDir()): NexusConfig {
   const models = readYaml(configDir, "models.yaml", fallbackDir);
   const routing = readYaml(configDir, "routing.yaml", fallbackDir);
-  return validateConfig(models, routing);
+  const accounts = readYaml(configDir, "accounts.yaml", fallbackDir, true);
+  return validateConfig(models, routing, accounts, accountsDir);
 }
 
-function readYaml(dir: string, name: string, fallbackDir?: string): unknown {
+/** 실제로 읽을 설정 파일 경로. 사용자 폴더에 없으면 기본 설정 폴더의 파일 */
+export function resolveConfigFile(dir: string, name: string, fallbackDir?: string): string | null {
+  for (const candidate of [dir, fallbackDir]) {
+    if (candidate && existsSync(path.join(candidate, name))) return path.join(candidate, name);
+  }
+  return null;
+}
+
+function readYaml(dir: string, name: string, fallbackDir?: string, optional = false): unknown {
   for (const candidate of [dir, fallbackDir]) {
     if (!candidate) continue;
     const file = path.join(candidate, name);
@@ -50,11 +75,38 @@ function readYaml(dir: string, name: string, fallbackDir?: string): unknown {
       }
     }
   }
+  if (optional) return undefined;
   throw new ConfigError(`${name} 파일을 찾지 못했어요 (${[dir, fallbackDir].filter(Boolean).join(", ")})`);
 }
 
-export function validateConfig(modelsRaw: unknown, routingRaw: unknown): NexusConfig {
+const ACCOUNT_ID = /^[a-z0-9][a-z0-9_-]{0,39}$/i;
+
+export function validateConfig(modelsRaw: unknown, routingRaw: unknown, accountsRaw?: unknown, accountsDir: string = defaultAccountsDir()): NexusConfig {
   const problems: string[] = [];
+
+  const accounts: Record<string, Account> = {};
+  const rawAccounts = (accountsRaw as { accounts?: Record<string, unknown> } | null | undefined)?.accounts;
+  if (rawAccounts && typeof rawAccounts === "object") {
+    for (const [id, value] of Object.entries(rawAccounts)) {
+      const v = value as Partial<Account> | null;
+      if (!ACCOUNT_ID.test(id)) {
+        problems.push(`계정 ${id}: 이름은 영문·숫자·-·_로 40자 안에서 지어 주세요`);
+        continue;
+      }
+      if (!v || !v.engine || !ENGINES.includes(v.engine)) {
+        problems.push(`계정 ${id}: engine은 ${ENGINES.join(" 또는 ")}이어야 해요`);
+        continue;
+      }
+      accounts[id] = {
+        id,
+        engine: v.engine,
+        provider: typeof v.provider === "string" && v.provider ? v.provider : v.engine === "claude-code" ? "anthropic" : "opencode",
+        label: typeof v.label === "string" && v.label ? v.label : id,
+        dir: typeof v.dir === "string" && v.dir ? v.dir : path.join(accountsDir, id),
+      };
+    }
+  }
+
   const aliases: Record<string, ModelAlias> = {};
   const rawAliases = (modelsRaw as { aliases?: Record<string, unknown> } | null)?.aliases;
   if (!rawAliases || typeof rawAliases !== "object") {
@@ -74,7 +126,18 @@ export function validateConfig(modelsRaw: unknown, routingRaw: unknown): NexusCo
         problems.push(`별칭 ${name}: OpenCode 모델은 provider/model 형식이어야 해요 (예: openai/gpt-5)`);
         continue;
       }
-      aliases[name] = { engine: v.engine, model: v.model, label: v.label, accountDir: v.accountDir };
+      let aliasAccounts: string[] | undefined;
+      if (v.accounts !== undefined && v.accounts !== null) {
+        const list = Array.isArray(v.accounts) ? v.accounts : [v.accounts];
+        aliasAccounts = [];
+        for (const id of list) {
+          const acc = accounts[String(id)];
+          if (!acc) problems.push(`별칭 ${name}: 없는 계정 ${id}을 가리켜요 (accounts.yaml 확인)`);
+          else if (acc.engine !== v.engine) problems.push(`별칭 ${name}: 계정 ${id}은 ${acc.engine}용이라 ${v.engine} 모델에 쓸 수 없어요`);
+          else aliasAccounts.push(acc.id);
+        }
+      }
+      aliases[name] = { engine: v.engine, model: v.model, label: v.label, accountDir: v.accountDir, ...(aliasAccounts?.length ? { accounts: aliasAccounts } : {}) };
     }
   }
 
@@ -93,10 +156,17 @@ export function validateConfig(modelsRaw: unknown, routingRaw: unknown): NexusCo
   const highRiskAlias = r.highRiskAlias ?? "smart";
   if (!aliases[highRiskAlias]) problems.push(`routing.yaml: highRiskAlias(${highRiskAlias})가 없는 별칭이에요`);
 
+  const p = (r as { planning?: Partial<PlanningPolicy> }).planning ?? {};
+  const mode = p.mode ?? "auto";
+  if (!PLANNING_MODES.includes(mode)) problems.push(`routing.yaml: planning.mode는 auto, always, never 중 하나여야 해요`);
+  const planner = p.planner ?? highRiskAlias;
+  if (!aliases[planner]) problems.push(`routing.yaml: planning.planner(${planner})가 없는 별칭이에요`);
+
   if (problems.length) throw new ConfigError(problems.join("\n"));
 
   return {
     aliases,
+    accounts,
     routing: {
       defaultWhenUnsure: r.defaultWhenUnsure === "delegate" ? "delegate" : "execute",
       preferLocal: r.preferLocal === true,
@@ -104,6 +174,17 @@ export function validateConfig(modelsRaw: unknown, routingRaw: unknown): NexusCo
       lightTaskTypes: (r.lightTaskTypes ?? ["test", "docs"]).filter((t): t is TaskType => TASK_TYPES.includes(t as TaskType)),
       highRiskAlias,
       maxFallbacks: typeof r.maxFallbacks === "number" ? r.maxFallbacks : 1,
+      planning: {
+        mode,
+        maxSubtasks: clampInt(p.maxSubtasks, 2, 10, 5),
+        concurrency: clampInt(p.concurrency, 1, 8, 3),
+        planner,
+      },
     },
   };
+}
+
+function clampInt(v: unknown, min: number, max: number, fallback: number): number {
+  const n = typeof v === "number" ? Math.round(v) : Number.NaN;
+  return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : fallback;
 }

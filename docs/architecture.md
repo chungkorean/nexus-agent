@@ -1,7 +1,7 @@
 # 아키텍처
 
 전체 설계는 [Nexus-Agent 아키텍처 설계서](https://claude.ai/code/artifact/f6653a04-00d1-4811-ba1d-238f33badf16)에 있습니다.
-이 문서는 1단계에서 실제로 만든 구조만 적습니다.
+이 문서는 실제로 만든 구조만 적습니다.
 
 ## 1단계 실행 흐름
 
@@ -16,7 +16,41 @@
 7. 공급자 문제(한도, 로그인, 연결)면 다음 별칭으로 넘어가고, 작업 자체가 실패하면 멈춥니다.
 8. 결과를 이슈 댓글로 남기고, 토큰·비용·모델을 Paperclip에 돌려줘 예산 집계에 반영합니다.
 
+## 2단계: 작업 분해, 병렬 실행, 계정
+
+분류 다음에 "나눌지"를 정합니다 (`packages/core/src/planner.ts`의 `shouldPlan`).
+
+- `routing.yaml`의 `planning.mode`가 `always`면 항상, `never`면 나누지 않습니다.
+- `auto`(기본)면 설명에 할 일 목록이 3개 이상이거나 600자를 넘을 때만 나눕니다. 라벨 `분해`/`plan`은 나누기, `단일`/`no-plan`은 나누지 않기를 강제합니다.
+
+나누기로 하면 다음 순서로 실행합니다.
+
+1. **계획**: `planning.planner` 별칭(기본 smart)을 **읽기 전용**으로 실행해 JSON 계획을 받습니다.
+   - Claude Code: `--dangerously-skip-permissions` 없이 `--disallowedTools Edit Write MultiEdit NotebookEdit Bash`
+   - OpenCode: `agent: "plan"`, 권한 설정에서 edit·bash 거부
+   - 계획을 읽지 못하거나 하위 작업이 1개면 1단계처럼 한 번에 실행합니다.
+2. **검사**: `parsePlan`이 키를 다듬고, 없는 의존을 지우고, 순환이면 거절합니다. 같은 파일·폴더를 건드리는 작업은 뒤 작업이 앞 작업을 기다리게 바꿉니다 (`addOverlapDependencies`).
+3. **하위 이슈**: 하위 작업마다 Paperclip 하위 이슈를 만듭니다 (`parentId`, 담당자 없음, `todo`). 실행하며 `in_progress` → `done`/`blocked`로 바꾸고 결과를 그 이슈에 댓글로 남깁니다.
+4. **병렬 실행**: `runSchedule`이 의존 순서를 지키며 `planning.concurrency`개씩 동시에 돌립니다.
+   - 하위 작업마다 `git worktree`(`%LOCALAPPDATA%\Nexus\wt\<이슈>-<실행>\<키>`)를 마지막 커밋에서 만들고, 앞 작업 브랜치를 merge한 뒤 실행합니다.
+   - 끝나면 모든 변경을 `nexus/<이슈>/<키>` 브랜치에 커밋하고 worktree 폴더는 지웁니다. 사용자의 작업 폴더는 건드리지 않습니다.
+   - 앞 작업이 실패하면 기다리던 작업은 건너뜁니다.
+   - 작업 폴더가 git 저장소가 아니거나 커밋이 없으면 같은 폴더에서 하나씩 실행합니다.
+5. **모으기**: 상위 이슈에 하위 작업별 결과 표와 `git merge` 명령을 남기고, 토큰·비용 합계를 Paperclip에 보고합니다. 브랜치를 자동으로 합치는 것은 3단계입니다.
+
+### 계정
+
+- `accounts.yaml`에 계정을 적고, `models.yaml`의 별칭에 `accounts: [..]`로 연결합니다. 계정 폴더는 Claude Code에 `CLAUDE_CONFIG_DIR`, OpenCode에 `XDG_DATA_HOME`으로 넘깁니다.
+- 라우터는 별칭 순서를 계정까지 펼칩니다. 같은 별칭의 다른 계정으로 넘어가는 것은 `maxFallbacks`에 세지 않습니다.
+- 병렬 하위 작업은 `spread`(하위 작업 번호)로 시작 계정을 돌려, 같은 모델이라도 계정이 나뉘게 합니다.
+- 한도·로그인·연결 오류가 나면 그 계정을 쉬게 합니다 (한도 60분, 로그인 12시간, 연결 5분). 상태는 `%LOCALAPPDATA%\Nexus\state\accounts-state.json`에 남아 다음 실행과 설정 화면이 같이 봅니다.
+
+### 쉬운 설정 화면
+
+`apps/nexus-server`가 `127.0.0.1:3200`에 설정 화면을 띄웁니다 (`pnpm settings` 또는 `scripts\nexus-settings.cmd`). YAML의 주석을 지키며 고치고, 저장 전에 검사하며, 저장할 때마다 백업해 되돌릴 수 있습니다. 계정 추가와 로그인 창 열기도 여기서 합니다. 어댑터는 실행마다 설정 파일을 다시 읽으므로 서버를 켜 둘 필요는 없습니다.
+
 ## 바뀐 설계 결정
 
-- 1단계에는 `apps/nexus-server`가 없습니다. 외부 어댑터가 Paperclip 안에서 실행되므로 필요해지는 2단계(정책 편집 화면, 병렬 실행 관리)에 만듭니다.
+- `apps/nexus-server`는 설정 화면 전용입니다. 병렬 실행 관리는 별도 서버 없이 어댑터 안에서 합니다. Paperclip이 에이전트당 실행을 하나씩 관리하므로 그 실행 안에서 하위 작업을 동시에 돌리는 편이 단순합니다.
+- 하위 이슈는 담당자를 비워 둡니다. 개발 부서 에이전트에게 배정하면 Paperclip이 하위 이슈마다 하트비트를 깨워 같은 작업을 두 번 실행할 수 있습니다.
 - 어댑터는 `@paperclipai/adapter-utils`를 런타임에 불러오지 않습니다. 필요한 타입만 `adapter-types.ts`에 옮겼고, 빌드할 때 의존성을 모두 묶어 Paperclip이 패키지 설치 없이 불러올 수 있게 했습니다.

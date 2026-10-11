@@ -47,7 +47,10 @@ export class OpenCodeExecutor implements Executor {
           ...(req.accountDir ? { XDG_DATA_HOME: req.accountDir } : {}),
           OPENCODE_SERVER_PASSWORD: password,
           // 무인 실행이므로 승인 질문 없이 진행한다. 작업 폴더 격리는 호출하는 쪽이 책임진다.
-          OPENCODE_CONFIG_CONTENT: JSON.stringify({ permission: { edit: "allow", bash: "allow", webfetch: "allow" } }),
+          // 읽기 전용(작업 분해)일 때는 파일 수정과 터미널을 막는다.
+          OPENCODE_CONFIG_CONTENT: JSON.stringify({
+            permission: req.readOnly ? { edit: "deny", bash: "deny", webfetch: "allow" } : { edit: "allow", bash: "allow", webfetch: "allow" },
+          }),
         },
         timeoutSec: this.opts.startupTimeoutSec ?? 30,
         onLog: req.onLog,
@@ -71,7 +74,7 @@ export class OpenCodeExecutor implements Executor {
       try {
         reply = await api.post<PromptReply>(
           `/session/${session.id}/message`,
-          { model: { providerID, modelID }, parts: [{ type: "text", text: req.prompt }] },
+          { model: { providerID, modelID }, ...(req.readOnly ? { agent: "plan" } : {}), parts: [{ type: "text", text: req.prompt }] },
           signal,
         );
       } catch (err) {
