@@ -112,6 +112,10 @@ const THREE = [
 
 describe("작업 분해와 병렬 실행", () => {
   it("하위 작업 셋을 서로 다른 모델·계정으로 동시에 실행하고 Paperclip 하위 이슈로 보여 준다", async () => {
+    // Windows는 git과 프로세스 시작이 느려 하위 작업 시작 시각이 1초 넘게 벌어질 수 있다.
+    // 작업 시간을 넉넉히 잡아야 "동시에 돌았다"를 확인할 수 있다.
+    process.env.FAKE_CLAUDE_DELAY_MS = "3000";
+    process.env.FAKE_OPENCODE_DELAY_MS = "3000";
     setPlan(THREE);
     const result = await executeDispatch(ctx(), deps);
     expect(result.exitCode).toBe(0);

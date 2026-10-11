@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
@@ -130,7 +130,7 @@ describe("nexus_dispatch 어댑터", () => {
 
   it("한도에 걸리면 대체 순서의 다음 모델로 넘어간다", async () => {
     const cfgDir = path.join(tmp, "cfg");
-    execFileSync("mkdir", ["-p", cfgDir]);
+    mkdirSync(cfgDir, { recursive: true });
     writeFileSync(path.join(cfgDir, "models.yaml"), readFileSync(path.join(REPO_CONFIG, "models.yaml")));
     writeFileSync(
       path.join(cfgDir, "routing.yaml"),
