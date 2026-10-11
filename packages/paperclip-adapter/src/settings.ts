@@ -52,7 +52,7 @@ export function readSettings(config: Record<string, unknown>, context: Record<st
     opencodeCommand: command(config.opencodeCommand, "opencode"),
     claudeCommand: command(config.claudeCommand, "claude"),
     timeoutSec: Number.isFinite(timeout) && timeout > 0 ? timeout : 1800,
-    markDoneOnSuccess: config.markDoneOnSuccess === true,
+    markDoneOnSuccess: config.markDoneOnSuccess === true || config.markDoneOnSuccess === "true",
     stateDir: str(config.stateDir) ?? defaultStateDir(),
     accountsDir: str(config.accountsDir) ?? defaultAccountsDir(),
     worktreeRoot: str(config.worktreeRoot) ?? defaultWorktreeRoot(),

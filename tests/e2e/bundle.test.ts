@@ -24,6 +24,9 @@ describe("빌드된 어댑터 패키지", () => {
     expect(adapter.type).toBe("nexus_dispatch");
     expect(typeof adapter.execute).toBe("function");
     expect(typeof adapter.testEnvironment).toBe("function");
+    // Paperclip 화면이 설정 입력칸을 그릴 수 있게 작업 폴더 칸을 알려 준다
+    const schema = await adapter.getConfigSchema();
+    expect(schema.fields.find((f: { key: string }) => f.key === "cwd")).toMatchObject({ required: true, type: "text" });
   });
 
   it("사용자 설정 폴더가 없으면 패키지에 든 기본 설정으로 점검을 통과한다", async () => {

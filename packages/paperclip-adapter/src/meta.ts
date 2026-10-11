@@ -1,4 +1,4 @@
-import type { AdapterModel } from "./adapter-types.ts";
+import type { AdapterConfigSchema, AdapterModel } from "./adapter-types.ts";
 
 export const label = "Nexus 디스패처";
 
@@ -28,3 +28,38 @@ export const agentConfigurationDoc = `# nexus_dispatch 에이전트 설정
 - timeoutSec: 실행 한 번(하위 작업 하나)의 제한 시간(초), 기본값 1800
 - markDoneOnSuccess: 성공하면 이슈를 done으로 바꿀지, 기본값 false
 `;
+
+/** Paperclip 에이전트 설정 화면에 보일 입력칸. 키는 settings.ts의 readSettings가 읽는 이름과 같다. */
+export const configSchema: AdapterConfigSchema = {
+  fields: [
+    {
+      key: "cwd",
+      label: "작업 폴더",
+      type: "text",
+      required: true,
+      hint: "AI가 작업할 폴더의 전체 경로. 예: C:\\work\\my-project",
+    },
+    {
+      key: "nonCodingAgentId",
+      label: "비코딩 작업을 넘길 에이전트 ID",
+      type: "text",
+      hint: "기획·글쓰기 같은 작업을 맡길 에이전트(예: Hermes)의 ID. 비워 두면 모두 직접 실행해요.",
+    },
+    {
+      key: "timeoutSec",
+      label: "작업 하나의 제한 시간(초)",
+      type: "number",
+      default: 1800,
+      hint: "하위 작업 하나가 이 시간을 넘기면 멈춰요.",
+    },
+    {
+      key: "markDoneOnSuccess",
+      label: "성공하면 이슈를 완료로 바꾸기",
+      type: "toggle",
+      default: false,
+    },
+    { key: "configDir", label: "설정 폴더", type: "text", group: "고급", hint: "비워 두면 %LOCALAPPDATA%\\Nexus\\config" },
+    { key: "opencodeCommand", label: "opencode 실행 파일", type: "text", group: "고급", hint: "비워 두면 opencode" },
+    { key: "claudeCommand", label: "claude 실행 파일", type: "text", group: "고급", hint: "비워 두면 claude" },
+  ],
+};

@@ -119,4 +119,28 @@ export interface ServerAdapterModule {
   testEnvironment(ctx: AdapterEnvironmentTestContext): Promise<AdapterEnvironmentTestResult>;
   models?: AdapterModel[];
   agentConfigurationDoc?: string;
+  /** 화면이 에이전트 설정 입력칸을 그릴 수 있게 알려 주는 목록 */
+  getConfigSchema?: () => Promise<AdapterConfigSchema> | AdapterConfigSchema;
+}
+
+export interface ConfigFieldOption {
+  label: string;
+  value: string;
+  group?: string;
+}
+
+export interface ConfigFieldSchema {
+  key: string;
+  label: string;
+  type: "text" | "select" | "toggle" | "number" | "textarea" | "combobox";
+  options?: ConfigFieldOption[];
+  default?: unknown;
+  hint?: string;
+  required?: boolean;
+  group?: string;
+  meta?: Record<string, unknown>;
+}
+
+export interface AdapterConfigSchema {
+  fields: ConfigFieldSchema[];
 }
