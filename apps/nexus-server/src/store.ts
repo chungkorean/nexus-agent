@@ -42,6 +42,8 @@ export interface SettingsChanges {
   maxFallbacks?: number;
   highRiskAlias?: string;
   planning?: { mode?: "auto" | "always" | "never"; concurrency?: number; maxSubtasks?: number };
+  /** 실행이 끝난 뒤 처리 */
+  results?: { autoMerge?: boolean; markDoneOnSuccess?: boolean };
 }
 
 export interface LoadedFiles {
@@ -306,6 +308,24 @@ export function applyChanges(
           setScalar(routing, ["planning", "maxSubtasks"], p.maxSubtasks);
           dirty.add("routing");
           sentences.push(`한 작업을 나눌 최대 개수: ${r.planning.maxSubtasks}개 → ${p.maxSubtasks}개`);
+        }
+      }
+    }
+  }
+
+  if (changes.results !== undefined) {
+    const res = changes.results;
+    if (!isPlainObject(res)) problems.push("작업이 끝난 뒤 처리 변경 내용을 이해하지 못했어요.");
+    else {
+      const names = { autoMerge: "성공하면 결과를 작업 폴더에 자동으로 합치기", markDoneOnSuccess: "성공하면 이슈를 완료로 바꾸기" } as const;
+      for (const key of ["autoMerge", "markDoneOnSuccess"] as const) {
+        const v = res[key];
+        if (v === undefined) continue;
+        if (typeof v !== "boolean") problems.push(`${names[key]}는 켜거나 끄기만 할 수 있어요.`);
+        else if (v !== r.results[key]) {
+          setScalar(routing, ["results", key], v);
+          dirty.add("routing");
+          sentences.push(`${names[key]}: ${r.results[key] ? "켜짐" : "꺼짐"} → ${v ? "켜짐" : "꺼짐"}`);
         }
       }
     }

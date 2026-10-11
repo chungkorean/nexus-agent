@@ -142,6 +142,8 @@ details .inner { padding-top: 8px; }
 
 /* 5. 기타 */
 .toggle-row { display: flex; gap: 14px; align-items: flex-start; justify-content: space-between; padding-bottom: 16px; border-bottom: 1px solid var(--line); margin-bottom: 16px; }
+.subhead { font-size: 15px; margin: 22px 0 12px; }
+#sec-planning .toggle-row:last-child { border-bottom: 0; margin-bottom: 0; padding-bottom: 0; }
 .toggle-row strong { display: block; font-size: 18px; }
 .switch { position: relative; flex: none; width: 64px; height: 36px; }
 .switch input { position: absolute; inset: 0; opacity: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; z-index: 1; }
@@ -361,6 +363,7 @@ function toDraft(s) {
     maxFallbacks: s.routing.maxFallbacks,
     highRiskAlias: s.routing.highRiskAlias,
     planning: { mode: s.routing.planning.mode, concurrency: s.routing.planning.concurrency, maxSubtasks: s.routing.planning.maxSubtasks },
+    results: { autoMerge: s.routing.results.autoMerge, markDoneOnSuccess: s.routing.results.markDoneOnSuccess },
   };
 }
 
@@ -385,6 +388,9 @@ function buildChanges() {
   for (const k of ["mode", "concurrency", "maxSubtasks"]) {
     if (draft.planning[k] !== orig.planning[k]) (c.planning = c.planning || {})[k] = draft.planning[k];
   }
+  for (const k of ["autoMerge", "markDoneOnSuccess"]) {
+    if (draft.results[k] !== orig.results[k]) (c.results = c.results || {})[k] = draft.results[k];
+  }
   return c;
 }
 
@@ -394,6 +400,7 @@ function countChanges(c) {
   for (const v of Object.values(c.aliases || {})) n += Object.keys(v).length;
   n += ["preferLocal", "maxFallbacks", "highRiskAlias"].filter((k) => k in c).length;
   n += Object.keys(c.planning || {}).length;
+  n += Object.keys(c.results || {}).length;
   return n;
 }
 
@@ -466,7 +473,22 @@ function renderPlanning() {
       h("label", { class: "field" }, h("span", {}, "최대 몇 개로"),
         h("select", { disabled: off, onchange: (e) => { p.maxSubtasks = Number(e.target.value); refreshBar(); } },
           range(S.limits.maxSubtasks[0], S.limits.maxSubtasks[1], p.maxSubtasks).map((n) => h("option", { value: String(n), selected: n === p.maxSubtasks }, n + "개까지 나누기"))),
-        h("span", { class: "small" }, "한 작업을 이 개수보다 잘게 나누지 않아요."))));
+        h("span", { class: "small" }, "한 작업을 이 개수보다 잘게 나누지 않아요."))),
+    h("h3", { class: "subhead" }, "작업이 끝나면"),
+    toggleRow("autoMerge", "결과를 작업 폴더에 자동으로 합치기",
+      "하위 작업이 모두 성공하면 결과 브랜치를 작업 폴더의 현재 브랜치에 합쳐요. 커밋하지 않은 변경이 있거나 충돌하면 합치지 않고 명령만 알려 줘요.",
+      draft.results.autoMerge, (v) => { draft.results.autoMerge = v; }),
+    toggleRow("markDoneOnSuccess", "성공하면 이슈를 완료로 바꾸기",
+      "끄면 성공해도 이슈가 진행 중으로 남아요. 실패하면 항상 '막힘'으로 바꿔요.",
+      draft.results.markDoneOnSuccess, (v) => { draft.results.markDoneOnSuccess = v; }));
+}
+
+function toggleRow(id, title, desc, checked, set) {
+  return h("div", { class: "toggle-row" },
+    h("label", { for: id }, h("strong", {}, title), h("span", { class: "small" }, desc)),
+    h("span", { class: "switch" },
+      h("input", { type: "checkbox", id, role: "switch", checked, onchange: (e) => { set(e.target.checked); refreshBar(); } }),
+      h("span", { class: "track", "aria-hidden": "true" })));
 }
 
 function accountStatus(a) {

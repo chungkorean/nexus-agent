@@ -34,3 +34,10 @@ planning:
   concurrency: 3
   # 작업을 나누는 AI (별칭)
   planner: smart
+
+# 실행이 끝난 뒤 처리 (설정 화면에서도 바꿀 수 있어요)
+results:
+  # 하위 작업이 모두 성공하면 결과 브랜치를 작업 폴더의 현재 브랜치에 합침
+  autoMerge: true
+  # 성공하면 이슈를 완료로 바꿈 (실패하면 항상 막힘으로 바꿈)
+  markDoneOnSuccess: true

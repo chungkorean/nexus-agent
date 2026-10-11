@@ -18,6 +18,15 @@ export interface RoutingPolicy {
   /** 공급자 오류일 때 대체 순서에서 몇 번까지 넘어갈지 */
   maxFallbacks: number;
   planning: PlanningPolicy;
+  results: ResultPolicy;
+}
+
+/** 실행이 끝난 뒤 처리. Paperclip 에이전트 설정(adapterConfig)에 같은 이름이 있으면 그쪽이 우선한다. */
+export interface ResultPolicy {
+  /** 하위 작업이 모두 성공하면 브랜치를 작업 폴더의 현재 브랜치에 합친다. */
+  autoMerge: boolean;
+  /** 성공하면 이슈를 완료로 바꾼다. 실패하면 항상 막힘으로 바꾼다. */
+  markDoneOnSuccess: boolean;
 }
 
 export interface PlanningPolicy {
@@ -179,6 +188,10 @@ export function validateConfig(modelsRaw: unknown, routingRaw: unknown, accounts
         maxSubtasks: clampInt(p.maxSubtasks, 2, 10, 5),
         concurrency: clampInt(p.concurrency, 1, 8, 3),
         planner,
+      },
+      results: {
+        autoMerge: (r as { results?: Partial<ResultPolicy> }).results?.autoMerge !== false,
+        markDoneOnSuccess: (r as { results?: Partial<ResultPolicy> }).results?.markDoneOnSuccess !== false,
       },
     },
   };

@@ -132,6 +132,7 @@ export function createSettingsServer(opts: SettingsServerOptions): SettingsServe
         highRiskAlias: config.routing.highRiskAlias,
         maxFallbacks: config.routing.maxFallbacks,
         planning: config.routing.planning,
+        results: config.routing.results,
       },
       limits: LIMITS,
     };

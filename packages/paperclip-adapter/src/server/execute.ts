@@ -5,7 +5,7 @@ import { OpenCodeExecutor } from "@nexus/executor-opencode";
 import { PaperclipClient, labelNames, type PaperclipComment, type PaperclipIssue } from "@nexus/paperclip-client";
 import { AccountState, loadConfig, type Classification, type Engine, type Executor, type NexusConfig } from "@nexus/shared";
 import type { AdapterExecutionContext, AdapterExecutionResult } from "../adapter-types.ts";
-import { ADAPTER_TYPE, bundledConfigDir, readSettings, type DispatchSettings } from "../settings.ts";
+import { ADAPTER_TYPE, bundledConfigDir, readSettings, withResultPolicy, type DispatchSettings } from "../settings.ts";
 import { makePlan, runPlanned } from "./planned.ts";
 import { finishIssue, firstLine, outcomeLines, routeLine, runRoutes, safeComment, sumUsage, type Attempt } from "./run.ts";
 
@@ -29,7 +29,7 @@ export const defaultDeps: DispatchDeps = {
 
 export async function executeDispatch(ctx: AdapterExecutionContext, deps: DispatchDeps = defaultDeps): Promise<AdapterExecutionResult> {
   const log = (line: string) => ctx.onLog("stdout", `[nexus] ${line}\n`);
-  const settings = readSettings(ctx.config, ctx.context);
+  let settings = readSettings(ctx.config, ctx.context);
   const taskId = typeof ctx.context.taskId === "string" ? ctx.context.taskId : null;
 
   if (!taskId) {
@@ -40,6 +40,7 @@ export async function executeDispatch(ctx: AdapterExecutionContext, deps: Dispat
   let config: NexusConfig;
   try {
     config = deps.loadConfig(settings);
+    settings = withResultPolicy(settings, ctx.config, config.routing.results);
   } catch (err) {
     return failed(`설정 파일 오류: ${(err as Error).message}`, "config_invalid");
   }

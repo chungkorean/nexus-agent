@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { defaultAccountsDir, defaultConfigDir, defaultStateDir, defaultWorktreeRoot, type CommandSpec } from "@nexus/shared";
+import { defaultAccountsDir, defaultConfigDir, defaultStateDir, defaultWorktreeRoot, type CommandSpec, type ResultPolicy } from "@nexus/shared";
 
 export { defaultConfigDir };
 
@@ -30,6 +30,23 @@ function str(v: unknown): string | null {
   return typeof v === "string" && v.trim() ? v.trim() : null;
 }
 
+function bool(v: unknown): boolean | null {
+  if (v === true || v === "true") return true;
+  if (v === false || v === "false") return false;
+  return null;
+}
+
+/**
+ * 결과 처리 설정: Paperclip 에이전트 설정에 값이 있으면 그것을, 없으면 Nexus 설정 화면(routing.yaml results)의 값을 쓴다.
+ */
+export function withResultPolicy(s: DispatchSettings, config: Record<string, unknown>, policy: ResultPolicy): DispatchSettings {
+  return {
+    ...s,
+    autoMerge: bool(config.autoMerge) ?? policy.autoMerge,
+    markDoneOnSuccess: bool(config.markDoneOnSuccess) ?? policy.markDoneOnSuccess,
+  };
+}
+
 function command(v: unknown, fallback: string): CommandSpec {
   if (Array.isArray(v) && v.every((x) => typeof x === "string") && v.length) return v as string[];
   return str(v) ?? fallback;
@@ -54,8 +71,8 @@ export function readSettings(config: Record<string, unknown>, context: Record<st
     opencodeCommand: command(config.opencodeCommand, "opencode"),
     claudeCommand: command(config.claudeCommand, "claude"),
     timeoutSec: Number.isFinite(timeout) && timeout > 0 ? timeout : 1800,
-    markDoneOnSuccess: !(config.markDoneOnSuccess === false || config.markDoneOnSuccess === "false"),
-    autoMerge: !(config.autoMerge === false || config.autoMerge === "false"),
+    markDoneOnSuccess: bool(config.markDoneOnSuccess) ?? true,
+    autoMerge: bool(config.autoMerge) ?? true,
     stateDir: str(config.stateDir) ?? defaultStateDir(),
     accountsDir: str(config.accountsDir) ?? defaultAccountsDir(),
     worktreeRoot: str(config.worktreeRoot) ?? defaultWorktreeRoot(),

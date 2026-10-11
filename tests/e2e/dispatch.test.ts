@@ -5,6 +5,7 @@ import path from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { PaperclipClient } from "@nexus/paperclip-client";
 import { defaultDeps, executeDispatch, type DispatchDeps } from "../../packages/paperclip-adapter/src/server/execute.ts";
+import { readSettings, withResultPolicy } from "../../packages/paperclip-adapter/src/settings.ts";
 import { testDispatchEnvironment } from "../../packages/paperclip-adapter/src/server/test.ts";
 import type { AdapterExecutionContext } from "../../packages/paperclip-adapter/src/adapter-types.ts";
 import { FakePaperclip } from "../fakes/fake-paperclip.ts";
@@ -157,6 +158,13 @@ describe("nexus_dispatch 어댑터", () => {
     expect(result.errorMessage).toContain("/login");
     expect(paperclip.comments[0]!.body).toContain("Nexus 실행 결과: 실패");
     expect(paperclip.issues.get("NEX-1")!.status).toBe("blocked");
+  });
+
+  it("설정 화면(routing.yaml)의 결과 처리 값을 쓰고, 에이전트 설정에 값이 있으면 그것이 우선한다", async () => {
+    const policy = { autoMerge: false, markDoneOnSuccess: false };
+    const base = readSettings({});
+    expect(withResultPolicy(base, {}, policy)).toMatchObject(policy);
+    expect(withResultPolicy(base, { autoMerge: "true", markDoneOnSuccess: true }, policy)).toMatchObject({ autoMerge: true, markDoneOnSuccess: true });
   });
 
   it("markDoneOnSuccess를 끄면 성공해도 이슈 상태를 바꾸지 않는다", async () => {

@@ -235,6 +235,21 @@ describe("settings server", () => {
     expect(parse(read("models.yaml")).aliases.coder.accounts).toBeUndefined();
   });
 
+  it("saves the after-run toggles", async () => {
+    await start();
+    const state = await getState();
+    expect(state.body.routing.results).toEqual({ autoMerge: true, markDoneOnSuccess: true });
+    const preview = await post("/api/preview", { results: { autoMerge: false } });
+    expect(preview.body.sentences).toContain("성공하면 결과를 작업 폴더에 자동으로 합치기: 켜짐 → 꺼짐");
+    const { status } = await post("/api/save", { results: { autoMerge: false } });
+    expect(status).toBe(200);
+    expect(parse(read("routing.yaml")).results).toMatchObject({ autoMerge: false });
+    expect((await getState()).body.routing.results).toEqual({ autoMerge: false, markDoneOnSuccess: true });
+
+    const bad = await post("/api/save", { results: { markDoneOnSuccess: "yes" } });
+    expect(bad.status).toBe(400);
+  });
+
   it("rejects an invalid save and writes nothing", async () => {
     await start();
     const { status, body } = await post("/api/save", { aliases: { coder: { accounts: ["openai-main"] } }, maxFallbacks: 2 });
