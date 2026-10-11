@@ -22,7 +22,7 @@ import {
 } from "@nexus/shared";
 import type { AdapterExecutionContext, AdapterExecutionResult } from "../adapter-types.ts";
 import { ADAPTER_TYPE, type DispatchSettings } from "../settings.ts";
-import { firstLine, outcomeLines, routeLine, runRoutes, safeComment, safeStatus, sumUsage, type Attempt, type Log } from "./run.ts";
+import { finishIssue, firstLine, outcomeLines, routeLine, runRoutes, safeComment, safeStatus, sumUsage, type Attempt, type Log } from "./run.ts";
 
 export interface PlannedEnv {
   ctx: AdapterExecutionContext;
@@ -147,7 +147,7 @@ export async function runPlanned(env: PlannedEnv, plan: Plan, planAttempts: Atte
   // 3. 상위 이슈에 결과를 모아 남긴다.
   const allDone = plan.subtasks.every((s) => results.get(s.key)?.status === "done");
   await safeComment(client, issue.id, summaryComment(plan, runs, results, notes, Boolean(repo)));
-  if (allDone && settings.markDoneOnSuccess) await safeStatus(client, issue.id, "done", log);
+  await finishIssue(client, issue.id, allDone, { markDoneOnSuccess: settings.markDoneOnSuccess, signal: ctx.signal }, log);
 
   const outcomes: RunOutcome[] = [...planAttempts, ...[...runs.values()].flatMap((r) => r.attempts)].map((a) => a.outcome);
   const usedRoutes = [...runs.values()].flatMap((r) => r.attempts.map((a) => a.route));

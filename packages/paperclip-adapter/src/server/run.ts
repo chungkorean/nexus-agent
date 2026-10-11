@@ -103,3 +103,20 @@ export async function safeStatus(client: PaperclipClient, issueId: string | null
 export function firstLine(text: string): string {
   return text.split(/\r?\n/).find((l) => l.trim())?.trim().slice(0, 200) ?? "";
 }
+
+/**
+ * 실행이 끝나면 상위 이슈를 닫는다. 진행 중으로 남겨 두면 Paperclip이
+ * "마무리하라"는 하트비트를 다시 보내 같은 작업을 처음부터 반복하게 된다.
+ * 실행이 취소됐으면 누군가 이미 이슈 상태를 바꾼 것이니 건드리지 않는다.
+ */
+export async function finishIssue(
+  client: PaperclipClient,
+  issueId: string,
+  ok: boolean,
+  opts: { markDoneOnSuccess: boolean; signal?: AbortSignal },
+  log: Log,
+): Promise<void> {
+  if (opts.signal?.aborted) return;
+  if (ok && !opts.markDoneOnSuccess) return;
+  await safeStatus(client, issueId, ok ? "done" : "blocked", log);
+}

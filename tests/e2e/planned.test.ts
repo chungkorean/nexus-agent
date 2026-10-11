@@ -133,6 +133,7 @@ describe("작업 분해와 병렬 실행", () => {
       expect(c.input.assigneeAgentId).toBeUndefined();
     }
     expect([...paperclip.issues.values()].filter((i) => i.parentId === "NEX-1").map((i) => i.status)).toEqual(["done", "done", "done"]);
+    expect(paperclip.issues.get("NEX-1")!.status).toBe("done");
 
     // 서로 다른 계정·모델, 그리고 실제로 동시에
     const work = claude.filter((c) => !c.prompt.includes("작업 분해 요청"));
@@ -193,6 +194,7 @@ describe("작업 분해와 병렬 실행", () => {
     expect(result.exitCode).toBe(1);
     const children = [...paperclip.issues.values()].filter((i) => i.parentId === "NEX-1");
     expect(children.map((i) => i.status)).toEqual(["blocked", "blocked", "done"]);
+    expect(paperclip.issues.get("NEX-1")!.status).toBe("blocked");
     const summary = paperclip.comments.filter((c) => c.issueId === "NEX-1").at(-1)!.body;
     expect(summary).toContain("일부 실패 (1/3)");
     expect(summary).toContain("앞 작업(impl)이 끝나지 않아 건너뛰었어요");

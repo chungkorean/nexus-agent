@@ -98,6 +98,7 @@ describe("nexus_dispatch 어댑터", () => {
     expect(comment).toContain("Nexus 실행 결과: 완료");
     expect(comment).toContain("Claude Code · sonnet");
     expect(comment).toContain("claude-output.txt");
+    expect(paperclip.issues.get("NEX-1")!.status).toBe("done"); // 열어 두면 Paperclip이 다시 깨운다
     expect(paperclip.requests.every((r) => r.headers.authorization === "Bearer agent-jwt" && r.headers["x-paperclip-run-id"] === "run-1")).toBe(true);
   });
 
@@ -155,6 +156,30 @@ describe("nexus_dispatch 어댑터", () => {
     expect(result.exitCode).toBe(1);
     expect(result.errorMessage).toContain("/login");
     expect(paperclip.comments[0]!.body).toContain("Nexus 실행 결과: 실패");
+    expect(paperclip.issues.get("NEX-1")!.status).toBe("blocked");
+  });
+
+  it("markDoneOnSuccess를 끄면 성공해도 이슈 상태를 바꾸지 않는다", async () => {
+    paperclip.issues.set("NEX-1", { id: "NEX-1", title: "목록 화면 버그 수정", companyId: "co-1", status: "in_progress" });
+    const result = await executeDispatch(ctx({ markDoneOnSuccess: false }), deps);
+    expect(result.exitCode).toBe(0);
+    expect(paperclip.issues.get("NEX-1")!.status).toBe("in_progress");
+  });
+
+  it("이미 끝난 이슈나 마무리 확인 하트비트에서는 다시 실행하지 않는다", async () => {
+    paperclip.issues.set("NEX-1", { id: "NEX-1", title: "목록 화면 버그 수정", companyId: "co-1", status: "done" });
+    const closed = await executeDispatch(ctx(), deps);
+    expect(closed.exitCode).toBe(0);
+    expect(closed.summary).toContain("완료");
+
+    paperclip.issues.set("NEX-1", { id: "NEX-1", title: "목록 화면 버그 수정", companyId: "co-1", status: "in_progress" });
+    const handoff = await executeDispatch(ctx({}, { taskId: "NEX-1", wakeReason: "finish_successful_run_handoff" }), deps);
+    expect(handoff.exitCode).toBe(0);
+
+    expect(readLog(process.env.FAKE_CLAUDE_LOG!)).toHaveLength(0);
+    expect(readLog(process.env.FAKE_OPENCODE_LOG!)).toHaveLength(0);
+    expect(paperclip.comments).toHaveLength(0);
+    expect(paperclip.issues.get("NEX-1")!.status).toBe("in_progress");
   });
 
   it("git 저장소가 아닌 폴더에서도 동작한다", async () => {

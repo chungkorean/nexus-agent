@@ -7,7 +7,7 @@ import { AccountState, loadConfig, type Classification, type Engine, type Execut
 import type { AdapterExecutionContext, AdapterExecutionResult } from "../adapter-types.ts";
 import { ADAPTER_TYPE, bundledConfigDir, readSettings, type DispatchSettings } from "../settings.ts";
 import { makePlan, runPlanned } from "./planned.ts";
-import { firstLine, outcomeLines, routeLine, runRoutes, safeComment, sumUsage, type Attempt } from "./run.ts";
+import { finishIssue, firstLine, outcomeLines, routeLine, runRoutes, safeComment, sumUsage, type Attempt } from "./run.ts";
 
 /** 테스트에서 가짜 실행기·클라이언트로 바꿔 끼울 수 있게 의존성을 모아 둔다. */
 export interface DispatchDeps {
@@ -50,6 +50,14 @@ export async function executeDispatch(ctx: AdapterExecutionContext, deps: Dispat
     issue = await client.getIssue(taskId);
   } catch (err) {
     return failed(`이슈 ${taskId}를 읽지 못했어요: ${(err as Error).message}`, "issue_unreadable");
+  }
+
+  // 이미 끝났거나 사람 손을 기다리는 이슈, 또는 방금 끝난 실행을 "마무리하라"고 다시 깨운 경우에는
+  // 같은 작업을 처음부터 반복하지 않는다.
+  const skip = skipReason(issue.status, ctx.context.wakeReason);
+  if (skip) {
+    await log(`${skip} 이번에는 실행하지 않아요.`);
+    return ok({ summary: skip });
   }
 
   const classification = classify(
@@ -123,9 +131,7 @@ export async function executeDispatch(ctx: AdapterExecutionContext, deps: Dispat
 
   const last = attempts[attempts.length - 1]!;
   await safeComment(client, issue.id, reportComment(classification, attempts));
-  if (last.outcome.ok && settings.markDoneOnSuccess) {
-    await client.updateIssue(issue.id, { status: "done" }).catch((err) => log(`상태 변경 실패: ${(err as Error).message}`));
-  }
+  await finishIssue(client, issue.id, last.outcome.ok, { markDoneOnSuccess: settings.markDoneOnSuccess, signal: ctx.signal }, log);
 
   const all = [...planAttempts, ...attempts];
   const totalCost = all.reduce((sum, a) => sum + (a.outcome.costUsd ?? 0), 0);
@@ -191,6 +197,15 @@ export function reportComment(c: Classification, attempts: Attempt[]): string {
     `- 분류: ${c.taskType}, 위험도 ${c.risk === "high" ? "높음" : "낮음"} (${c.reasons.join("; ")})`,
     ...outcomeLines(attempts),
   ].join("\n");
+}
+
+const CLOSED_STATUSES: Record<string, string> = { done: "완료", cancelled: "취소", blocked: "막힘", in_review: "검토 중" };
+const REPEAT_WAKES = new Set(["finish_successful_run_handoff"]);
+
+export function skipReason(status: string | null | undefined, wakeReason: unknown): string | null {
+  if (status && CLOSED_STATUSES[status]) return `이슈가 이미 '${CLOSED_STATUSES[status]}' 상태예요.`;
+  if (typeof wakeReason === "string" && REPEAT_WAKES.has(wakeReason)) return "방금 끝난 실행을 마무리하라는 알림이에요.";
+  return null;
 }
 
 function ok(extra: Partial<AdapterExecutionResult>): AdapterExecutionResult {

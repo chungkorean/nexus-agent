@@ -26,7 +26,7 @@ export const agentConfigurationDoc = `# nexus_dispatch 에이전트 설정
 - stateDir / accountsDir / worktreeRoot: 계정 한도 상태, 계정 로그인 폴더, 병렬 실행용 작업 폴더. 기본값은 %LOCALAPPDATA%\\Nexus 아래
 - opencodeCommand / claudeCommand: 실행 파일 경로 (기본값 opencode / claude)
 - timeoutSec: 실행 한 번(하위 작업 하나)의 제한 시간(초), 기본값 1800
-- markDoneOnSuccess: 성공하면 이슈를 done으로 바꿀지, 기본값 false
+- markDoneOnSuccess: 성공하면 이슈를 done으로 바꿀지, 기본값 true. 실패하면 항상 blocked로 바꿔요.
 `;
 
 /** Paperclip 에이전트 설정 화면에 보일 입력칸. 키는 settings.ts의 readSettings가 읽는 이름과 같다. */
@@ -56,7 +56,8 @@ export const configSchema: AdapterConfigSchema = {
       key: "markDoneOnSuccess",
       label: "성공하면 이슈를 완료로 바꾸기",
       type: "toggle",
-      default: false,
+      default: true,
+      hint: "끄면 성공해도 진행 중으로 남아요. 실패하면 항상 '막힘'으로 바꿔요.",
     },
     { key: "configDir", label: "설정 폴더", type: "text", group: "고급", hint: "비워 두면 %LOCALAPPDATA%\\Nexus\\config" },
     { key: "opencodeCommand", label: "opencode 실행 파일", type: "text", group: "고급", hint: "비워 두면 opencode" },
