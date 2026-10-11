@@ -1,0 +1,32 @@
+# 별칭 → 실행 엔진과 모델
+# - engine: claude-code(Claude 구독 계정) 또는 opencode(그 밖의 공급자)
+# - model: claude-code는 opus / sonnet / haiku 또는 전체 모델 ID,
+#          opencode는 provider/model 형식. 쓸 수 있는 목록은 `opencode models`로 확인하세요.
+# - accountDir: 계정을 나눠 쓸 때 그 계정의 폴더 (2단계에서 화면으로 관리)
+#
+# 아래 OpenCode 모델명은 예시입니다. 로그인한 공급자에 맞게 고쳐 주세요.
+aliases:
+  smart:
+    engine: claude-code
+    model: opus
+    label: "Claude Opus (가장 똑똑함, 한도를 빨리 씀)"
+  coder:
+    engine: claude-code
+    model: sonnet
+    label: "Claude Sonnet (코드 작성 기본)"
+  fast:
+    engine: claude-code
+    model: haiku
+    label: "Claude Haiku (빠름, 간단한 일)"
+  longctx:
+    engine: opencode
+    model: google/gemini-2.5-pro
+    label: "Gemini Pro (긴 문맥, 큰 코드 읽기)"
+  reviewer:
+    engine: opencode
+    model: openai/gpt-5
+    label: "GPT (구현과 다른 회사 모델로 검토)"
+  local:
+    engine: opencode
+    model: ollama/qwen3-coder
+    label: "내 컴퓨터 모델 (Ollama, 무료)"

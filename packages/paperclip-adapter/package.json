@@ -1,0 +1,19 @@
+{
+  "name": "nexus-paperclip-adapter",
+  "version": "0.1.0",
+  "description": "Nexus-Agent 디스패처: 코딩·실행 작업을 OpenCode 또는 Claude Code로 자동 배정하는 Paperclip 외부 어댑터",
+  "type": "module",
+  "exports": {
+    ".": "./dist/index.js",
+    "./server": "./dist/server/index.js"
+  },
+  "main": "./dist/index.js",
+  "files": ["dist", "config"],
+  "devDependencies": {
+    "@nexus/core": "workspace:*",
+    "@nexus/executor-claude-code": "workspace:*",
+    "@nexus/executor-opencode": "workspace:*",
+    "@nexus/paperclip-client": "workspace:*",
+    "@nexus/shared": "workspace:*"
+  }
+}

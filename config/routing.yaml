@@ -1,0 +1,25 @@
+# 작업 종류 → 별칭 대체 순서. 앞에서부터 시도하고,
+# 한도 초과·로그인 만료 같은 공급자 문제가 생기면 다음 별칭으로 넘어갑니다.
+
+# 분류 신호가 없거나 비길 때: execute(직접 실행) 또는 delegate(비코딩 에이전트에게 넘김)
+defaultWhenUnsure: execute
+
+# true면 가벼운 작업(lightTaskTypes)을 local 별칭(Ollama 등)에 먼저 맡깁니다.
+preferLocal: false
+lightTaskTypes: [test, docs]
+
+# 인증·결제·삭제 등 위험도 높은 작업에 가장 먼저 쓸 별칭
+highRiskAlias: smart
+
+# 공급자 문제일 때 대체 순서에서 몇 번까지 넘어갈지
+maxFallbacks: 1
+
+taskTypes:
+  design:    [smart, coder]
+  implement: [coder, smart]
+  refactor:  [coder, smart]
+  test:      [fast, coder]
+  docs:      [fast, coder]
+  research:  [longctx, smart]
+  ops:       [coder, smart]     # 터미널·파일 작업 (스크립트 실행, 엑셀 파싱, 디컴파일 등)
+  review:    [reviewer, smart]
