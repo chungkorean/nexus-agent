@@ -1,5 +1,5 @@
 import { existsSync, statSync } from "node:fs";
-import { AccountState, ConfigError, loadConfig, runProcess, type CommandSpec } from "@nexus/shared";
+import { AccountState, accountHasLogin, ConfigError, loadConfig, runProcess, type CommandSpec } from "@nexus/shared";
 import type { AdapterEnvironmentCheck, AdapterEnvironmentTestContext, AdapterEnvironmentTestResult } from "../adapter-types.ts";
 import { ADAPTER_TYPE, bundledConfigDir, readSettings } from "../settings.ts";
 
@@ -27,7 +27,7 @@ export async function testDispatchEnvironment(ctx: AdapterEnvironmentTestContext
     const state = new AccountState(s.stateDir);
     for (const acc of Object.values(config.accounts)) {
       const cooldown = state.get(acc.id);
-      if (!existsSync(acc.dir)) {
+      if (!accountHasLogin(acc)) {
         checks.push({ code: "account_not_logged_in", level: "warn", message: `계정 ${acc.label}: 아직 로그인하지 않았어요.`, detail: acc.dir, hint: "설정 화면(pnpm settings)의 계정 칸에서 로그인 창을 열어 주세요." });
       } else if (cooldown) {
         checks.push({ code: "account_cooling_down", level: "warn", message: `계정 ${acc.label}: ${new Date(cooldown.until).toLocaleString("ko-KR")}까지 쉬는 중 (${cooldown.reason})` });

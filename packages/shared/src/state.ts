@@ -1,6 +1,6 @@
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import type { ErrorFamily } from "./types.ts";
+import type { Account, ErrorFamily } from "./types.ts";
 
 export interface AccountCooldown {
   /** ISO 시각. 이 시각까지는 이 계정을 건너뛴다. */
@@ -83,4 +83,14 @@ export class AccountState {
       /* 상태 파일을 못 써도 실행은 계속한다 */
     }
   }
+}
+
+/**
+ * 계정 폴더에 로그인해 둔 흔적이 있는지. Claude Code는 .credentials.json, OpenCode는 opencode/auth.json.
+ * Ollama 같은 로컬 모델은 로그인이 필요 없다.
+ */
+export function accountHasLogin(account: Account): boolean {
+  if (account.provider.toLowerCase() === "ollama") return true;
+  if (account.engine === "claude-code") return existsSync(path.join(account.dir, ".credentials.json"));
+  return existsSync(path.join(account.dir, "opencode", "auth.json"));
 }

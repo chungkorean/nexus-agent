@@ -4,7 +4,7 @@ import http from "node:http";
 import type { AddressInfo } from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { AccountState, ConfigError, type Account, type Engine, type NexusConfig } from "@nexus/shared";
+import { AccountState, accountHasLogin, ConfigError, type Account, type Engine, type NexusConfig } from "@nexus/shared";
 import { buildLoginCommand, defaultLauncher, type LaunchResult, type LoginCommand } from "./login.ts";
 import {
   addAccountToDoc,
@@ -75,13 +75,6 @@ function findPublicDir(): string {
   return path.join(here, "public");
 }
 
-/** 로그인해 둔 흔적이 있는지. Claude Code는 .credentials.json, OpenCode는 opencode/auth.json */
-function hasLogin(account: Account): boolean {
-  if (account.provider === "ollama") return true;
-  if (account.engine === "claude-code") return existsSync(path.join(account.dir, ".credentials.json"));
-  return existsSync(path.join(account.dir, "opencode", "auth.json"));
-}
-
 export function createSettingsServer(opts: SettingsServerOptions): SettingsServer {
   const publicDir = path.resolve(opts.publicDir ?? findPublicDir());
   const launcher = opts.launcher ?? defaultLauncher;
@@ -125,7 +118,7 @@ export function createSettingsServer(opts: SettingsServerOptions): SettingsServe
         provider: acc.provider,
         label: acc.label,
         dir: acc.dir,
-        loggedIn: hasLogin(acc),
+        loggedIn: accountHasLogin(acc),
         cooldown: cooldowns[acc.id] ?? null,
         usedBy: Object.entries(config.aliases)
           .filter(([, a]) => a.accounts?.includes(acc.id))
