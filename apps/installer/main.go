@@ -5,6 +5,7 @@
 package main
 
 import (
+	"bytes"
 	_ "embed"
 	"os"
 	"os/exec"
@@ -39,9 +40,18 @@ func main() {
 	}
 	cmd := exec.Command(ps, "-NoProfile", "-STA", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-File", file)
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: createNoWindow}
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &out
 	if err := cmd.Run(); err != nil {
+		// 화면이 뜨기 전에 멈췄으면 이유를 보여 준다(아무 반응 없이 끝나지 않게).
+		msg := out.String()
+		if len(msg) > 1500 {
+			msg = msg[len(msg)-1500:]
+		}
 		if _, ok := err.(*exec.ExitError); !ok {
 			fail("설치 프로그램을 켜지 못했어요: " + err.Error())
 		}
+		fail("설치 프로그램이 멈췄어요.\n\n" + msg)
 	}
 }

@@ -204,6 +204,7 @@ export function createSettingsServer(opts: SettingsServerOptions): SettingsServe
     build: readBuild(),
     version: readVersion(),
     head: repoHead,
+    root: path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", ".."),
     viewUrl: () => viewUrl,
     adapterStatus: () => adapterSync?.status() ?? null,
   });

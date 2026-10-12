@@ -17,6 +17,8 @@ export interface ExtrasOptions {
   installer: ToolInstaller;
   build?: string | null;
   version?: string | null;
+  /** 이 서버를 띄운 저장소 폴더(어느 폴더의 Nexus가 떠 있는지 보여 주려고) */
+  root?: string;
   /** 저장소의 지금 커밋 */
   head?: () => string | null;
   /** Paperclip 한국어 보기 주소. 못 열었으면 null */
@@ -71,7 +73,7 @@ export function createExtras(o: ExtrasOptions) {
   }
 
   const get: Record<string, (url: URL) => Promise<object> | object> = {
-    "/api/info": () => ({ paperclipUrl: o.paperclipUrl, platform: process.platform, build: o.build ?? null, version: o.version ?? null, stale: isStale() }),
+    "/api/info": () => ({ paperclipUrl: o.paperclipUrl, platform: process.platform, build: o.build ?? null, version: o.version ?? null, stale: isStale(), root: o.root ?? null }),
 
     "/api/archive": (url) => ({
       items: listArchive(o.stateDir, {

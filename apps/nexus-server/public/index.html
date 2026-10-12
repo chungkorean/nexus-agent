@@ -1103,7 +1103,7 @@ function rerender() {
   }
   $("footer").textContent = "설정 파일 위치: " + S.configDir;
   // 버전을 함께 보여 준다(트레이 메뉴 '새 버전 확인'과 같은 번호).
-  api("/api/info").then((i) => { if (i.version) $("footer").textContent = "Nexus 버전 " + i.version + " · 설정 파일 위치: " + S.configDir; }).catch(() => {});
+  api("/api/info").then((i) => { if (i.version) $("footer").textContent = "Nexus 버전 " + i.version + (i.root ? " · 실행 폴더: " + i.root : "") + " · 설정 파일 위치: " + S.configDir; }).catch(() => {});
   window.scrollTo(0, y);
   refreshBar();
 }

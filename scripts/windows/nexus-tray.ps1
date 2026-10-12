@@ -76,6 +76,48 @@ function Show-AppWindows {
   return $shown
 }
 
+# ---------- 켜는 중 화면 ----------
+# Nexus.exe로 켜면 앱 창이 뜰 때까지(Paperclip과 설정 화면이 켜질 때까지) 움직이는 막대가 있는 작은 창을 띄운다.
+$script:splash = $null
+function Show-Splash {
+  $f = New-Object System.Windows.Forms.Form
+  $f.FormBorderStyle = "None"
+  $f.StartPosition = "CenterScreen"
+  $f.Size = New-Object System.Drawing.Size(380, 150)
+  $f.BackColor = [System.Drawing.Color]::White
+  $f.TopMost = $true
+  $f.ShowInTaskbar = $true
+  $f.Text = "Nexus"
+  $f.Padding = New-Object System.Windows.Forms.Padding(1)
+  $f.add_Paint({ param($sender, $e) $e.Graphics.DrawRectangle([System.Drawing.Pens]::LightGray, 0, 0, $sender.Width - 1, $sender.Height - 1) })
+  $t = New-Object System.Windows.Forms.Label
+  $t.Text = "Nexus를 켜는 중이에요"
+  $t.Font = New-Object System.Drawing.Font("Malgun Gothic", 13, [System.Drawing.FontStyle]::Bold)
+  $t.ForeColor = [System.Drawing.Color]::FromArgb(31, 36, 48)
+  $t.Location = New-Object System.Drawing.Point(24, 22)
+  $t.AutoSize = $true
+  $f.Controls.Add($t)
+  $bar = New-Object System.Windows.Forms.ProgressBar
+  $bar.Style = "Marquee"
+  $bar.MarqueeAnimationSpeed = 25
+  $bar.Location = New-Object System.Drawing.Point(26, 64)
+  $bar.Size = New-Object System.Drawing.Size(328, 10)
+  $f.Controls.Add($bar)
+  $d = New-Object System.Windows.Forms.Label
+  $d.Text = "Paperclip과 설정 화면을 켜고 있어요. 처음에는 1~2분 걸릴 수 있어요."
+  $d.Font = New-Object System.Drawing.Font("Malgun Gothic", 9)
+  $d.ForeColor = [System.Drawing.Color]::DimGray
+  $d.Location = New-Object System.Drawing.Point(24, 88)
+  $d.Size = New-Object System.Drawing.Size(340, 44)
+  $f.Controls.Add($d)
+  $script:splashDetail = $d
+  $script:splash = $f
+  $f.Show()
+  [System.Windows.Forms.Application]::DoEvents()
+}
+function Close-Splash {
+  if ($script:splash) { $script:splash.Close(); $script:splash.Dispose(); $script:splash = $null }
+}
 # Edge(없으면 Chrome)의 앱 모드로 Nexus 화면을 주소창 없는 창으로 연다.
 # 따로 쓰는 프로필이라 마이크 권한도 이 창에만 한 번 허락하면 된다.
 function Open-App([string]$url = $AppUrl) {
@@ -110,8 +152,13 @@ function Find-Update {
   if (-not (Test-Path (Join-Path $Repo ".git"))) { return $null }
   if (-not (Get-Command git -ErrorAction SilentlyContinue)) { return $null }
   $env:GIT_TERMINAL_PROMPT = "0"
-  & git -C $Repo -c credential.interactive=never fetch --quiet origin main 2>$null
-  if ($LASTEXITCODE -ne 0) { return $null }
+  # 받는 동안 켜는 중 화면이 멈추지 않게 따로 돌리고 기다린다(20초가 넘으면 그만둔다).
+  $p = Start-Process -FilePath "git" -ArgumentList @("-C", "`"$Repo`"", "-c", "credential.interactive=never", "fetch", "--quiet", "origin", "main") -WindowStyle Hidden -PassThru
+  $null = $p.Handle  # 종료 코드를 읽으려면 핸들을 잡아 둬야 한다
+  $until = (Get-Date).AddSeconds(20)
+  while (-not $p.HasExited -and (Get-Date) -lt $until) { [System.Windows.Forms.Application]::DoEvents(); Start-Sleep -Milliseconds 50 }
+  if (-not $p.HasExited) { try { $p.Kill() } catch { }; return $null }
+  if ($p.ExitCode -ne 0) { return $null }
   $remoteJson = (& git -C $Repo show origin/main:package.json 2>$null) -join "`n"
   $remote = Get-NexusVersion $remoteJson
   $local = Get-LocalVersion
@@ -120,6 +167,7 @@ function Find-Update {
 }
 # 새 버전으로 바꾼다. 보이는 창에서 진행 상황을 보여 주고, 끝날 때까지 기다린다. 성공하면 $true.
 function Install-Update($version) {
+  Close-Splash
   $logFile = Join-Path $DataDir "logs\update.log"
   New-Item -ItemType Directory -Force -Path (Split-Path $logFile) | Out-Null
   # Nexus.exe가 아직 끝나지 않았으면 새 Nexus.exe로 바꾸지 못하므로 잠깐 기다린다.
@@ -148,6 +196,7 @@ function Restart-Tray {
   Start-Process -FilePath (Get-Process -Id $PID).Path -ArgumentList $argList -WindowStyle Hidden
 }
 
+if ($OpenApp) { Show-Splash }
 $update = Find-Update
 if ($update) {
   if (Install-Update $update) { Restart-Tray; exit 0 }
@@ -194,7 +243,7 @@ if (-not $created -and $stale) {
 }
 if ($stale) { Stop-StaleSettings }
 if (-not $created) {
-  if ($OpenApp) { Open-App; exit 0 }
+  if ($OpenApp) { Close-Splash; Open-App; exit 0 }
   [System.Windows.Forms.MessageBox]::Show("Nexus가 이미 켜져 있어요. 화면 오른쪽 아래 작업 표시줄의 N 아이콘을 눌러 주세요.", "Nexus") | Out-Null
   exit 0
 }
@@ -334,7 +383,8 @@ $menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator)) | Out-Null
 Add-Item "모두 다시 시작" {
   foreach ($s in $services) { Stop-NexusService $s; $s.Restarts = @() }
   Start-Sleep -Milliseconds 800
-  foreach ($s in $services) { Start-NexusService $s | Out-Null }
+  
+foreach ($s in $services) { Start-NexusService $s | Out-Null }
   Notify "Nexus" "다시 시작했어요. 잠시 뒤 화면을 열어 주세요."
 } | Out-Null
 $autoItem = Add-Item "Windows를 켤 때 자동으로 실행" {
@@ -381,8 +431,10 @@ function Update-Status {
   $text = "Nexus: " + ($parts -join ", ")
   $tray.Text = if ($text.Length -gt 63) { $text.Substring(0, 63) } else { $text }
   $statusItem.Text = ($parts -join " · ")
+  if ($script:splash) { $script:splashDetail.Text = ($parts -join " · ") }
   if ($allUp -and -not $script:announced) {
     $script:announced = $true
+    Close-Splash
     Notify "Nexus가 켜졌어요" "아이콘을 두 번 누르면 Nexus 앱이 열려요. 오른쪽 버튼을 누르면 메뉴가 나와요."
     if ($OpenApp) { Open-App }
   }
@@ -421,6 +473,11 @@ $appTimer = New-Object System.Windows.Forms.Timer
 $appTimer.Interval = 2000
 $appTimer.add_Tick({ try { Watch-AppWindows } catch { } })
 $appTimer.Start()
+# 오래 걸리면 켜는 중 화면을 닫고 트레이 아이콘으로 상태를 보게 한다.
+$splashTimer = New-Object System.Windows.Forms.Timer
+$splashTimer.Interval = 240000
+$splashTimer.add_Tick({ $splashTimer.Stop(); if ($script:splash) { Close-Splash; Notify "Nexus" "켜는 데 오래 걸리고 있어요. 트레이 N 아이콘에 마우스를 올리면 상태가 보여요." "Warning" } })
+$splashTimer.Start()
 
 $context = New-Object System.Windows.Forms.ApplicationContext
 [System.Windows.Forms.Application]::Run($context)

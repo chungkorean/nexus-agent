@@ -104,12 +104,14 @@ function Pump { [System.Windows.Forms.Application]::DoEvents() }
 function Run([string]$file, [string]$arguments, [string]$dir = $env:TEMP, [switch]$Elevate) {
   if ($Elevate) {
     $p = Start-Process -FilePath $file -ArgumentList $arguments -WorkingDirectory $dir -PassThru
+    $null = $p.Handle  # 종료 코드를 읽으려면 핸들을 잡아 둬야 한다
     while (-not $p.HasExited) { Pump; Start-Sleep -Milliseconds 150 }
     $p.WaitForExit()
     return $p.ExitCode
   }
   $out = Join-Path $env:TEMP ("nexus-setup-" + [guid]::NewGuid().ToString("N") + ".log")
   $p = Start-Process -FilePath $file -ArgumentList $arguments -WorkingDirectory $dir -WindowStyle Hidden -PassThru -RedirectStandardOutput $out -RedirectStandardError "$out.err"
+  $null = $p.Handle  # 종료 코드를 읽으려면 핸들을 잡아 둬야 한다
   while (-not $p.HasExited) { Pump; Start-Sleep -Milliseconds 150 }
   $p.WaitForExit()
   foreach ($f in @($out, "$out.err")) {
@@ -248,4 +250,6 @@ $install.add_Click({
   }
 })
 
+# 다른 창 뒤에 숨어 뜨지 않게 처음 한 번 맨 앞으로 가져온다.
+$form.add_Shown({ $form.TopMost = $true; $form.Activate(); $form.TopMost = $false })
 [void]$form.ShowDialog()
