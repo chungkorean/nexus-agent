@@ -64,7 +64,7 @@ func main() {
 		os.Exit(1)
 	}
 	if _, err := exec.LookPath("node"); err != nil {
-		ask("Node.js가 없어요.\n\nhttps://nodejs.org 에서 Node.js 22 이상(LTS)을 설치한 뒤 다시 실행해 주세요.", mbOK|mbIconError)
+		ask("Node.js가 없어요.\n\nhttps://nodejs.org 에서 Node.js 24 LTS(24.11 이상)을 설치한 뒤 다시 실행해 주세요.", mbOK|mbIconError)
 		os.Exit(1)
 	}
 

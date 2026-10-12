@@ -187,14 +187,21 @@ Nexus 버전은 저장소 맨 위 `package.json`의 `version`입니다. 설정 �
 - 새 코드를 받았는데 예전 서버가 떠 있으면 화면 위에 "모두 다시 시작"을 누르라는 안내가 뜹니다.
 - 새 버전을 내보낼 때는 `package.json`의 `version`을 올려서 `main`에 올립니다. 버전을 올리지 않은 변경은 다른 PC가 저절로 받지 않습니다.
 
-### 12. 다른 사람과 함께 쓰기
+### 12. 앱 창 닫기와 숨기기
+
+- 앱 창의 **X**를 누르면(열린 Nexus 창을 모두 닫으면) 트레이 실행기, 설정 서버, Paperclip까지 모두 꺼집니다.
+- 앱 창의 **_**(최소화)를 누르면 창이 작업 표시줄에서 사라지고 트레이로 들어갑니다. 트레이 N 아이콘을 두 번 누르거나 "Nexus 앱 열기"를 누르면 다시 나옵니다.
+
+### 13. 다른 사람과 함께 쓰기
 
 Nexus는 PC마다 따로 설치해서 씁니다. 각자 자기 PC에서 Paperclip과 Nexus를 켜고, 자기 AI 계정으로 로그인합니다(계정과 설정은 그 PC의 `%LOCALAPPDATA%\Nexus`에만 있고 저장소에는 올라가지 않습니다).
 
 1. 저장소가 비공개면 GitHub 저장소의 Settings › Collaborators에서 그 사람을 초대합니다(공개 저장소면 필요 없음).
-2. 그 사람은 Node.js와 git을 설치하고 `git clone https://github.com/chungkorean/nexus-agent`로 받습니다.
-3. 받은 폴더의 `Nexus.exe`를 두 번 누르면 패키지 설치와 빌드를 하고 켜집니다. 그 뒤로는 버전이 올라갈 때마다 저절로 업데이트됩니다.
+2. 저장소 맨 위의 `NexusSetup.exe`를 그 사람에게 보냅니다.
+3. 그 사람이 `NexusSetup.exe`를 실행해 설치할 폴더를 고르고 "설치하기"를 누르면, Node.js와 git이 없을 때 설치하고(winget, 없으면 공식 설치 파일), GitHub에서 Nexus를 받아 빌드한 뒤 바탕 화면에 Nexus 바로 가기를 만듭니다. 그 뒤로는 버전이 올라갈 때마다 저절로 업데이트됩니다.
 4. 설정 화면의 계정 칸에서 자기 Claude, Google, OpenCode 계정으로 로그인합니다.
+
+직접 설치하려면 Node.js 24 LTS와 git을 설치하고 `git clone https://github.com/chungkorean/nexus-agent`로 받은 뒤 `Nexus.exe`를 두 번 누르세요.
 
 ## 저장소 구조
 
@@ -210,6 +217,7 @@ packages/
 apps/
   nexus-server/           설정 화면, 스튜디오, 음성 비서, 텔레그램 봇 (127.0.0.1:3200)
   launcher/               Nexus.exe 소스 (Go, 트레이 실행기를 창 없이 띄움)
+  installer/              NexusSetup.exe 소스 (Go + PowerShell 화면: Node.js·git 설치, 받기, 빌드, 바로 가기)
 config/                   기본 models.yaml, routing.yaml, accounts.yaml
 scripts/                  어댑터 빌드, Windows 환경 점검, 트레이 실행기, Whisper 설치
 tests/                    가짜 Paperclip·OpenCode·Claude Code·agy로 돌리는 테스트

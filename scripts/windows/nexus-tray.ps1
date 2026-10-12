@@ -16,9 +16,71 @@ Add-Type -AssemblyName System.Drawing
 $DataDir = if ($env:NEXUS_HOME) { $env:NEXUS_HOME } else { Join-Path $env:LOCALAPPDATA "Nexus" }
 $AppUrl = "http://127.0.0.1:$SettingsPort/studio"
 
+# ---------- Nexus 앱 창 다루기 ----------
+# 앱 창은 Edge/Chrome 앱 모드 창이라 단추를 직접 바꿀 수 없다. 대신 트레이가 창을 지켜보다가
+# '_'(최소화)를 누르면 작업 표시줄에서 숨겨 트레이로 보내고, 'X'로 마지막 창을 닫으면 Nexus를 모두 끈다.
+Add-Type -TypeDefinition @"
+using System;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
+using System.Text;
+public static class NxWin {
+  delegate bool EnumProc(IntPtr h, IntPtr l);
+  [DllImport("user32.dll")] static extern bool EnumWindows(EnumProc cb, IntPtr l);
+  [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetClassName(IntPtr h, StringBuilder s, int n);
+  [DllImport("user32.dll")] static extern int GetWindowTextLength(IntPtr h);
+  [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr h);
+  [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
+  [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr h);
+  [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int cmd);
+  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
+  // 주어진 프로세스들의 제목 있는 브라우저 창(보이는 것만)
+  public static IntPtr[] Visible(int[] pids) {
+    var set = new HashSet<uint>();
+    foreach (var p in pids) set.Add((uint)p);
+    var list = new List<IntPtr>();
+    EnumWindows((h, l) => {
+      uint pid; GetWindowThreadProcessId(h, out pid);
+      if (!set.Contains(pid) || !IsWindowVisible(h) || GetWindowTextLength(h) == 0) return true;
+      var sb = new StringBuilder(64); GetClassName(h, sb, 64);
+      if (sb.ToString() == "Chrome_WidgetWin_1") list.Add(h);
+      return true;
+    }, IntPtr.Zero);
+    return list.ToArray();
+  }
+}
+"@
+$script:AppProfile = Join-Path $DataDir "app-profile"
+$script:HiddenWindows = New-Object System.Collections.ArrayList
+# 앱 창 전용 프로필로 뜬 브라우저 프로세스 번호
+function Get-AppPids {
+  $needle = $script:AppProfile.ToLower()
+  return @(Get-CimInstance Win32_Process -Filter "Name='msedge.exe' OR Name='chrome.exe'" -ErrorAction SilentlyContinue |
+    Where-Object { $_.CommandLine -and $_.CommandLine.ToLower().Contains($needle) } | ForEach-Object { [int]$_.ProcessId })
+}
+# 트레이로 숨긴 앱 창을 다시 보여 준다. 보여 준 창이 있으면 $true.
+function Show-AppWindows {
+  $shown = $false
+  foreach ($h in @($script:HiddenWindows)) {
+    if ([NxWin]::IsWindow($h)) { [NxWin]::ShowWindow($h, 5) | Out-Null; [NxWin]::ShowWindow($h, 9) | Out-Null; [NxWin]::SetForegroundWindow($h) | Out-Null; $shown = $true }
+  }
+  $script:HiddenWindows.Clear()
+  if (-not $shown) {
+    # 작업 표시줄에 최소화해 둔 창이 있으면 그것을 띄운다.
+    $pids = Get-AppPids
+    if ($pids.Count) {
+      foreach ($h in [NxWin]::Visible([int[]]$pids)) { [NxWin]::ShowWindow($h, 9) | Out-Null; [NxWin]::SetForegroundWindow($h) | Out-Null; $shown = $true }
+    }
+  }
+  return $shown
+}
+
 # Edge(없으면 Chrome)의 앱 모드로 Nexus 화면을 주소창 없는 창으로 연다.
 # 따로 쓰는 프로필이라 마이크 권한도 이 창에만 한 번 허락하면 된다.
 function Open-App([string]$url = $AppUrl) {
+  # 이미 열어 둔(트레이로 숨긴) 앱 창이 있으면 새로 열지 않고 그 창을 띄운다.
+  if ($url -eq $AppUrl -and (Show-AppWindows)) { return }
   $candidates = @(
     (Join-Path ${env:ProgramFiles(x86)} "Microsoft\Edge\Application\msedge.exe"),
     (Join-Path $env:ProgramFiles "Microsoft\Edge\Application\msedge.exe"),
@@ -28,8 +90,7 @@ function Open-App([string]$url = $AppUrl) {
   )
   $browser = $candidates | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
   if (-not $browser) { Start-Process $url; return }
-  $appProfile = Join-Path $DataDir "app-profile"
-  Start-Process -FilePath $browser -ArgumentList @("--app=$url", "--user-data-dir=`"$appProfile`"", "--window-size=1280,880", "--no-first-run", "--no-default-browser-check")
+  Start-Process -FilePath $browser -ArgumentList @("--app=$url", "--user-data-dir=`"$script:AppProfile`"", "--window-size=1280,880", "--no-first-run", "--no-default-browser-check")
 }
 
 $Repo = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
@@ -284,12 +345,14 @@ $autoItem = Add-Item "Windows를 켤 때 자동으로 실행" {
 $autoItem.Checked = Test-Path $StartupLink
 Add-Item "바탕 화면에 Nexus 앱 바로 가기 만들기" { New-Shortcut $DesktopLink -App; Notify "Nexus" "바탕 화면에 Nexus 바로 가기를 만들었어요. 두 번 누르면 Nexus 앱이 열려요." } | Out-Null
 $menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator)) | Out-Null
-Add-Item "종료" {
+function Stop-All {
   $timer.Stop()
+  if ($appTimer) { $appTimer.Stop() }
   foreach ($s in $services) { Stop-NexusService $s }
   $tray.Visible = $false
   [System.Windows.Forms.Application]::Exit()
-} | Out-Null
+}
+Add-Item "종료" { Stop-All } | Out-Null
 $tray.ContextMenuStrip = $menu
 $tray.add_MouseDoubleClick({ Open-App })
 
@@ -331,6 +394,33 @@ $timer.Interval = 5000
 $timer.add_Tick({ try { Update-Status } catch { } })
 $timer.Start()
 Update-Status
+
+# 앱 창 지켜보기: '_'는 트레이로 숨기고, 마지막 창을 'X'로 닫으면 모두 끈다.
+$script:appSeen = $false
+$script:appGone = 0
+$script:hideTold = $false
+function Watch-AppWindows {
+  $pids = Get-AppPids
+  $visible = if ($pids.Count) { @([NxWin]::Visible([int[]]$pids)) } else { @() }
+  foreach ($h in $visible) {
+    if ([NxWin]::IsIconic($h)) {
+      [NxWin]::ShowWindow($h, 0) | Out-Null
+      if (-not $script:HiddenWindows.Contains($h)) { [void]$script:HiddenWindows.Add($h) }
+      if (-not $script:hideTold) { $script:hideTold = $true; Notify "Nexus" "창을 트레이로 숨겼어요. N 아이콘을 두 번 누르면 다시 열려요. 완전히 끄려면 창의 X를 누르세요." }
+    }
+  }
+  $hidden = @($script:HiddenWindows | Where-Object { [NxWin]::IsWindow($_) })
+  $alive = @($visible | Where-Object { -not [NxWin]::IsIconic($_) }).Count + $hidden.Count
+  if ($alive -gt 0) { $script:appSeen = $true; $script:appGone = 0; return }
+  if (-not $script:appSeen) { return }
+  # 페이지를 옮길 때 잠깐 창이 없어 보일 수 있어 두 번 연속 없을 때만 끈다.
+  $script:appGone++
+  if ($script:appGone -ge 2) { Stop-All }
+}
+$appTimer = New-Object System.Windows.Forms.Timer
+$appTimer.Interval = 2000
+$appTimer.add_Tick({ try { Watch-AppWindows } catch { } })
+$appTimer.Start()
 
 $context = New-Object System.Windows.Forms.ApplicationContext
 [System.Windows.Forms.Application]::Run($context)
