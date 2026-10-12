@@ -43,7 +43,7 @@ export interface SettingsChanges {
   highRiskAlias?: string;
   planning?: { mode?: "auto" | "always" | "never"; concurrency?: number; maxSubtasks?: number };
   /** 실행이 끝난 뒤 처리 */
-  results?: { autoMerge?: boolean; markDoneOnSuccess?: boolean };
+  results?: { autoMerge?: boolean; markDoneOnSuccess?: boolean; resolveConflicts?: boolean; runTests?: boolean; review?: boolean; testCommand?: string };
 }
 
 export interface LoadedFiles {
@@ -317,8 +317,14 @@ export function applyChanges(
     const res = changes.results;
     if (!isPlainObject(res)) problems.push("작업이 끝난 뒤 처리 변경 내용을 이해하지 못했어요.");
     else {
-      const names = { autoMerge: "성공하면 결과를 작업 폴더에 자동으로 합치기", markDoneOnSuccess: "성공하면 이슈를 완료로 바꾸기" } as const;
-      for (const key of ["autoMerge", "markDoneOnSuccess"] as const) {
+      const names = {
+        autoMerge: "성공하면 결과를 작업 폴더에 자동으로 합치기",
+        markDoneOnSuccess: "성공하면 이슈를 완료로 바꾸기",
+        resolveConflicts: "합치다 충돌하면 AI에게 풀게 하기",
+        runTests: "합친 결과로 테스트 돌리기",
+        review: "다른 회사 AI에게 전체 변경 검토받기",
+      } as const;
+      for (const key of ["autoMerge", "markDoneOnSuccess", "resolveConflicts", "runTests", "review"] as const) {
         const v = res[key];
         if (v === undefined) continue;
         if (typeof v !== "boolean") problems.push(`${names[key]}는 켜거나 끄기만 할 수 있어요.`);
@@ -326,6 +332,15 @@ export function applyChanges(
           setScalar(routing, ["results", key], v);
           dirty.add("routing");
           sentences.push(`${names[key]}: ${r.results[key] ? "켜짐" : "꺼짐"} → ${v ? "켜짐" : "꺼짐"}`);
+        }
+      }
+      if (res.testCommand !== undefined) {
+        if (typeof res.testCommand !== "string" || res.testCommand.length > 300 || /[\r\n]/.test(res.testCommand)) problems.push("테스트 명령은 300자 이하의 한 줄로 적어 주세요.");
+        else if (res.testCommand.trim() !== r.results.testCommand) {
+          const v = res.testCommand.trim();
+          setScalar(routing, ["results", "testCommand"], v);
+          dirty.add("routing");
+          sentences.push(`테스트 명령: ${r.results.testCommand || "자동으로 찾기"} → ${v || "자동으로 찾기"}`);
         }
       }
     }

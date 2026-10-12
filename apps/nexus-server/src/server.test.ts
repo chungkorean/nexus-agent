@@ -238,13 +238,17 @@ describe("settings server", () => {
   it("saves the after-run toggles", async () => {
     await start();
     const state = await getState();
-    expect(state.body.routing.results).toEqual({ autoMerge: true, markDoneOnSuccess: true });
+    expect(state.body.routing.results).toMatchObject({ autoMerge: true, markDoneOnSuccess: true, review: true, runTests: true });
     const preview = await post("/api/preview", { results: { autoMerge: false } });
     expect(preview.body.sentences).toContain("성공하면 결과를 작업 폴더에 자동으로 합치기: 켜짐 → 꺼짐");
     const { status } = await post("/api/save", { results: { autoMerge: false } });
     expect(status).toBe(200);
     expect(parse(read("routing.yaml")).results).toMatchObject({ autoMerge: false });
-    expect((await getState()).body.routing.results).toEqual({ autoMerge: false, markDoneOnSuccess: true });
+    expect((await getState()).body.routing.results).toMatchObject({ autoMerge: false, markDoneOnSuccess: true });
+
+    await post("/api/save", { results: { review: false, testCommand: "  python -m pytest -q  " } });
+    expect(parse(read("routing.yaml")).results).toMatchObject({ autoMerge: false, review: false, testCommand: "python -m pytest -q" });
+    expect((await post("/api/save", { results: { testCommand: "a\nb" } })).status).toBe(400);
 
     const bad = await post("/api/save", { results: { markDoneOnSuccess: "yes" } });
     expect(bad.status).toBe(400);

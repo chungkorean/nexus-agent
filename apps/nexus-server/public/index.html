@@ -142,7 +142,8 @@ details .inner { padding-top: 8px; }
 
 /* 5. 기타 */
 .toggle-row { display: flex; gap: 14px; align-items: flex-start; justify-content: space-between; padding-bottom: 16px; border-bottom: 1px solid var(--line); margin-bottom: 16px; }
-.subhead { font-size: 15px; margin: 22px 0 12px; }
+.subhead { font-size: 15px; margin: 22px 0 4px; }
+.field.indent { display: block; margin: -4px 0 16px; padding-bottom: 16px; border-bottom: 1px solid var(--line); }
 #sec-planning .toggle-row:last-child { border-bottom: 0; margin-bottom: 0; padding-bottom: 0; }
 .toggle-row strong { display: block; font-size: 18px; }
 .switch { position: relative; flex: none; width: 64px; height: 36px; }
@@ -363,7 +364,7 @@ function toDraft(s) {
     maxFallbacks: s.routing.maxFallbacks,
     highRiskAlias: s.routing.highRiskAlias,
     planning: { mode: s.routing.planning.mode, concurrency: s.routing.planning.concurrency, maxSubtasks: s.routing.planning.maxSubtasks },
-    results: { autoMerge: s.routing.results.autoMerge, markDoneOnSuccess: s.routing.results.markDoneOnSuccess },
+    results: { ...s.routing.results },
   };
 }
 
@@ -388,8 +389,9 @@ function buildChanges() {
   for (const k of ["mode", "concurrency", "maxSubtasks"]) {
     if (draft.planning[k] !== orig.planning[k]) (c.planning = c.planning || {})[k] = draft.planning[k];
   }
-  for (const k of ["autoMerge", "markDoneOnSuccess"]) {
-    if (draft.results[k] !== orig.results[k]) (c.results = c.results || {})[k] = draft.results[k];
+  for (const k of ["autoMerge", "markDoneOnSuccess", "resolveConflicts", "runTests", "review", "testCommand"]) {
+    const v = typeof draft.results[k] === "string" ? draft.results[k].trim() : draft.results[k];
+    if (v !== orig.results[k]) (c.results = c.results || {})[k] = v;
   }
   return c;
 }
@@ -475,8 +477,20 @@ function renderPlanning() {
           range(S.limits.maxSubtasks[0], S.limits.maxSubtasks[1], p.maxSubtasks).map((n) => h("option", { value: String(n), selected: n === p.maxSubtasks }, n + "개까지 나누기"))),
         h("span", { class: "small" }, "한 작업을 이 개수보다 잘게 나누지 않아요."))),
     h("h3", { class: "subhead" }, "작업이 끝나면"),
+    h("p", { class: "help" }, "나눠서 한 결과를 하나로 합친 뒤 확인하고, 문제가 없을 때만 작업 폴더에 합쳐요."),
+    toggleRow("resolveConflicts", "합치다 충돌하면 AI에게 풀게 하기",
+      "두 하위 작업이 같은 곳을 고쳐 충돌하면, 위험한 작업에 쓰는 AI가 양쪽 의도를 살려 한 번 풀어요.",
+      draft.results.resolveConflicts, (v) => { draft.results.resolveConflicts = v; }),
+    toggleRow("runTests", "합친 결과로 테스트 돌리기",
+      "테스트가 실패하면 작업 폴더에 합치지 않아요. 테스트 도구가 없으면 건너뛰어요.",
+      draft.results.runTests, (v) => { draft.results.runTests = v; rerender(); }),
+    h("label", { class: "field indent" }, h("span", {}, "테스트 명령"),
+      h("input", { type: "text", value: draft.results.testCommand, disabled: !draft.results.runTests, placeholder: "비우면 자동으로 찾아요 (예: npm test, python -m pytest -q)", oninput: (e) => { draft.results.testCommand = e.target.value; refreshBar(); } })),
+    toggleRow("review", "다른 회사 AI에게 전체 변경 검토받기",
+      "구현에 쓰지 않은 회사의 모델이 합친 변경 전체를 읽고 의견을 남겨요. '확인 필요'라고 하면 작업 폴더에 합치지 않아요.",
+      draft.results.review, (v) => { draft.results.review = v; }),
     toggleRow("autoMerge", "결과를 작업 폴더에 자동으로 합치기",
-      "하위 작업이 모두 성공하면 결과 브랜치를 작업 폴더의 현재 브랜치에 합쳐요. 커밋하지 않은 변경이 있거나 충돌하면 합치지 않고 명령만 알려 줘요.",
+      "위 확인을 모두 통과하면 결과 브랜치를 작업 폴더의 현재 브랜치에 합쳐요. 커밋하지 않은 변경이 있거나 위험도가 높은 작업이면 명령만 알려 줘요.",
       draft.results.autoMerge, (v) => { draft.results.autoMerge = v; }),
     toggleRow("markDoneOnSuccess", "성공하면 이슈를 완료로 바꾸기",
       "끄면 성공해도 이슈가 진행 중으로 남아요. 실패하면 항상 '막힘'으로 바꿔요.",

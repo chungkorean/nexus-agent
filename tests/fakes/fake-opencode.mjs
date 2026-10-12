@@ -48,6 +48,9 @@ const server = createServer(async (req, res) => {
     if (isPlan) {
       return json(200, { info: { cost: 0.001, tokens: { input: 3, output: 2 } }, parts: [{ type: "text", text: "```json\n" + (process.env.FAKE_OPENCODE_PLAN ?? "{}") + "\n```" }] });
     }
+    if (text.includes("## Nexus 전체 변경 검토 요청")) {
+      return json(200, { info: { cost: 0.003, tokens: { input: 40, output: 12 } }, parts: [{ type: "text", text: `판정: ${process.env.FAKE_REVIEW_VERDICT ?? "문제 없음"}\n- 가짜 OpenCode 검토 의견` }] });
+    }
     const key = text.match(/하위 작업 키: (\S+)/)?.[1];
     if (!parsed.agent) writeFileSync(path.join(directory, key ? `${key}.txt` : "opencode-output.txt"), "made by fake opencode\n");
     return json(200, {

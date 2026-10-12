@@ -24,6 +24,8 @@ import {
 } from "@nexus/shared";
 import type { AdapterExecutionContext, AdapterExecutionResult } from "../adapter-types.ts";
 import { ADAPTER_TYPE, type DispatchSettings } from "../settings.ts";
+import { aggregate, type AggregateResult } from "./aggregate.ts";
+import { serialGit } from "./gitqueue.ts";
 import { finishIssue, firstLine, outcomeLines, routeLine, runRoutes, safeComment, safeStatus, sumUsage, type Attempt, type Log } from "./run.ts";
 
 export interface PlannedEnv {
@@ -146,24 +148,39 @@ export async function runPlanned(env: PlannedEnv, plan: Plan, planAttempts: Atte
     },
   );
 
-  // 3. 상위 이슈에 결과를 모아 남긴다.
+  // 3. 취합: 결과 브랜치로 합치고 테스트·검토한 뒤, 조건이 맞으면 작업 폴더에 합친다.
   const allDone = plan.subtasks.every((s) => results.get(s.key)?.status === "done");
+  const committed = topoOrder(plan).filter((s) => runs.get(s.key)?.commit && runs.get(s.key)?.branch).map((s) => ({ key: s.key, branch: runs.get(s.key)!.branch! }));
+  let agg: AggregateResult | null = null;
+  if (repo && allDone && committed.length && !ctx.signal?.aborted) {
+    agg = await aggregate(env, plan, {
+      repoRoot: repo.root,
+      base: repo.head,
+      subdir,
+      ident,
+      runTag,
+      branches: committed,
+      implementers: [...runs.values()].flatMap((r) => r.attempts.filter((a) => a.outcome.ok).map((a) => a.route)),
+    });
+  }
+  const gate = mergeGate(agg, classification.risk, settings.autoMerge);
   let merge: WorkdirMergeResult | null = null;
-  const branches = plan.subtasks.map((s) => runs.get(s.key)?.commit && runs.get(s.key)?.branch).filter(Boolean) as string[];
-  if (repo && allDone && settings.autoMerge && branches.length && !ctx.signal?.aborted) {
-    merge = await serialGit(() => mergeIntoWorkdir(repo.root, branches));
+  if (repo && agg?.ok && agg.branch && gate.allowed && !ctx.signal?.aborted) {
+    merge = await serialGit(() => mergeIntoWorkdir(repo.root, [agg!.branch!]));
     await log(merge.ok ? `작업 폴더의 ${merge.branch} 브랜치에 결과를 합쳤어요.` : `자동으로 합치지 못했어요: ${merge.reason}`);
   }
-  await safeComment(client, issue.id, summaryComment(plan, runs, results, notes, Boolean(repo), merge));
-  await finishIssue(client, issue.id, allDone, { markDoneOnSuccess: settings.markDoneOnSuccess, signal: ctx.signal }, log);
+  const overallOk = allDone && (!agg || (agg.ok && agg.tests?.status !== "failed"));
+  const aggAttempts = agg?.attempts ?? [];
+  await safeComment(client, issue.id, summaryComment(plan, runs, results, notes, Boolean(repo), { agg, gate, merge, overallOk, attempts: [...planAttempts, ...[...runs.values()].flatMap((r) => r.attempts), ...aggAttempts] }));
+  await finishIssue(client, issue.id, overallOk, { markDoneOnSuccess: settings.markDoneOnSuccess, signal: ctx.signal }, log);
 
-  const outcomes: RunOutcome[] = [...planAttempts, ...[...runs.values()].flatMap((r) => r.attempts)].map((a) => a.outcome);
+  const outcomes: RunOutcome[] = [...planAttempts, ...[...runs.values()].flatMap((r) => r.attempts), ...aggAttempts].map((a) => a.outcome);
   const usedRoutes = [...runs.values()].flatMap((r) => r.attempts.map((a) => a.route));
   const models = [...new Set(usedRoutes.map((r) => r.model))];
   const totalCost = outcomes.reduce((sum, o) => sum + (o.costUsd ?? 0), 0);
   const doneCount = plan.subtasks.filter((s) => results.get(s.key)?.status === "done").length;
   return {
-    exitCode: allDone ? 0 : 1,
+    exitCode: overallOk ? 0 : 1,
     signal: null,
     timedOut: false,
     usage: sumUsage(outcomes),
@@ -172,12 +189,15 @@ export async function runPlanned(env: PlannedEnv, plan: Plan, planAttempts: Atte
     provider: models.length === 1 ? (usedRoutes[0]?.engine === "claude-code" ? "anthropic" : models[0]!.split("/")[0]) : null,
     billingType: usedRoutes.length && usedRoutes.every((r) => r.engine === "claude-code") ? "subscription" : "unknown",
     costUsd: totalCost || null,
-    summary: `하위 작업 ${plan.subtasks.length}개 중 ${doneCount}개 완료${firstLine(plan.summary) ? `: ${firstLine(plan.summary)}` : ""}`,
-    errorMessage: allDone ? null : `하위 작업 ${plan.subtasks.length - doneCount}개가 끝나지 않았어요`,
+    summary: `하위 작업 ${plan.subtasks.length}개 중 ${doneCount}개 완료${agg?.tests ? `, 테스트 ${TEST_LABEL[agg.tests.status]}` : ""}${firstLine(plan.summary) ? `: ${firstLine(plan.summary)}` : ""}`,
+    errorMessage: overallOk ? null : !allDone ? `하위 작업 ${plan.subtasks.length - doneCount}개가 끝나지 않았어요` : agg?.error ?? (agg?.tests?.status === "failed" ? "합친 결과가 테스트를 통과하지 못했어요" : null),
     resultJson: {
       classification,
       plan,
       merged: merge?.ok ? { branch: merge.branch, head: merge.head } : null,
+      result: agg
+        ? { ok: agg.ok, branch: agg.branch, head: agg.head, error: agg.error ?? null, tests: agg.tests, review: agg.review ? { verdict: agg.review.verdict, sameProvider: agg.review.sameProvider } : null, conflictsResolved: agg.resolutions.length }
+        : null,
       subtasks: plan.subtasks.map((s) => {
         const r = runs.get(s.key)!;
         return {
@@ -193,13 +213,6 @@ export async function runPlanned(env: PlannedEnv, plan: Plan, planAttempts: Atte
   };
 }
 
-/** 같은 저장소에서 worktree 추가·삭제가 겹치면 git 잠금 파일이 충돌하므로 하나씩 한다. */
-let gitQueue: Promise<unknown> = Promise.resolve();
-function serialGit<T>(fn: () => Promise<T>): Promise<T> {
-  const next = gitQueue.then(fn, fn);
-  gitQueue = next.catch(() => undefined);
-  return next;
-}
 
 async function runSubtask(
   env: PlannedEnv,
@@ -296,17 +309,49 @@ function planComment(plan: Plan, runs: Map<string, SubtaskRun>, config: NexusCon
   return lines.join("\n");
 }
 
+export const TEST_LABEL: Record<string, string> = { passed: "통과", failed: "실패", unavailable: "도구 없음", none: "없음" };
+
+/** 의존 순서대로 (앞 작업이 먼저) */
+export function topoOrder(plan: Plan): Subtask[] {
+  const done = new Set<string>();
+  const out: Subtask[] = [];
+  let rest = [...plan.subtasks];
+  while (rest.length) {
+    const ready = rest.filter((s) => s.dependsOn.every((d) => done.has(d) || !plan.subtasks.some((o) => o.key === d)));
+    const next = ready.length ? ready : rest.slice(0, 1);
+    for (const s of next) {
+      out.push(s);
+      done.add(s.key);
+    }
+    rest = rest.filter((s) => !done.has(s.key));
+  }
+  return out;
+}
+
+/** 결과 브랜치를 사용자 작업 폴더에 자동으로 합쳐도 되는지 */
+export function mergeGate(agg: AggregateResult | null, risk: string, autoMerge: boolean): { allowed: boolean; reason?: string } {
+  if (!agg) return { allowed: false };
+  if (!agg.ok) return { allowed: false, reason: agg.error };
+  if (!autoMerge) return { allowed: false, reason: "자동 합치기가 꺼져 있어요." };
+  if (agg.tests?.status === "failed") return { allowed: false, reason: "합친 결과가 테스트를 통과하지 못해서 작업 폴더에 합치지 않았어요." };
+  if (agg.review?.verdict === "attention") return { allowed: false, reason: "검토자가 확인이 필요하다고 해서 작업 폴더에 합치지 않았어요." };
+  if (risk === "high") return { allowed: false, reason: "위험도가 높은 작업이라 사람이 확인한 뒤 합치도록 남겨 뒀어요." };
+  return { allowed: true };
+}
+
 function summaryComment(
   plan: Plan,
   runs: Map<string, SubtaskRun>,
   results: Map<string, { status: string }>,
   notes: string[],
   hasRepo: boolean,
-  merge: WorkdirMergeResult | null = null,
+  extra: { agg: AggregateResult | null; gate: { allowed: boolean; reason?: string }; merge: WorkdirMergeResult | null; overallOk: boolean; attempts: Attempt[] },
 ): string {
+  const { agg, gate, merge, overallOk } = extra;
   const status = (k: string) => results.get(k)?.status ?? "skipped";
   const done = plan.subtasks.filter((s) => status(s.key) === "done").length;
-  const lines = [`### Nexus 실행 결과: ${done === plan.subtasks.length ? "완료" : "일부 실패"} (${done}/${plan.subtasks.length})`, ""];
+  const heading = overallOk ? "완료" : done === plan.subtasks.length ? "확인 필요" : "일부 실패";
+  const lines = [`### Nexus 실행 결과: ${heading} (${done}/${plan.subtasks.length})`, ""];
   lines.push("| 하위 작업 | 결과 | 실행한 AI | 바뀐 파일 | 브랜치 |", "| --- | --- | --- | --- | --- |");
   for (const s of plan.subtasks) {
     const r = runs.get(s.key)!;
@@ -323,13 +368,68 @@ function summaryComment(
       lines.push(`- ${s.key}: ${r.error ?? r.attempts.at(-1)?.outcome.errorMessage ?? "이유 없음"}`);
     }
   }
+
+  if (agg) {
+    lines.push("", "#### 합친 결과");
+    if (agg.branch && agg.ok) lines.push(`- 결과 브랜치: \`${agg.branch}\`${agg.head ? ` (커밋 ${agg.head.slice(0, 8)})` : ""}, 바뀐 파일 ${agg.files.length}개`);
+    for (const r of agg.resolutions) {
+      const by = r.attempts.at(-1)?.route;
+      lines.push(`- 충돌 해결: \`${r.branch}\` (${r.files.join(", ")}) → ${r.ok ? "AI가 풀었어요" : "풀지 못했어요"}${by ? ` · ${by.model}` : ""}`);
+    }
+    if (!agg.ok && agg.error) lines.push(`- 합치기 실패: ${agg.error}`);
+    if (agg.tests) {
+      const t = agg.tests;
+      const desc = {
+        passed: `통과 (\`${t.command}\`, ${t.durationSec ?? 0}초)`,
+        failed: `실패 (\`${t.command}\`)`,
+        unavailable: `테스트 도구가 없어 돌리지 못했어요 (\`${t.command}\`)`,
+        none: "테스트를 찾지 못했어요",
+      }[t.status];
+      lines.push(`- 테스트: ${desc}`);
+      if (t.status === "failed" && t.output) lines.push("", "```", t.output.split("\n").slice(-30).join("\n"), "```");
+    } else if (agg.ok) {
+      lines.push("- 테스트: 돌리지 않음");
+    }
+    if (agg.review) {
+      const rv = agg.review;
+      const by = rv.attempts.at(-1)?.route;
+      const verdict = { ok: "문제 없음", attention: "확인 필요", unknown: "판정 없음" }[rv.verdict];
+      lines.push(`- 검토: ${verdict}${by ? ` · ${by.model}${rv.sameProvider ? " (다른 회사 모델이 없어 같은 회사 모델로 검토)" : " (구현과 다른 회사 모델)"}` : ""}`);
+      const body = rv.text.replace(/^판정\s*[:：].*\n?/, "").trim();
+      if (body) lines.push("", ...body.slice(0, 3000).split("\n").map((l) => `> ${l}`));
+    }
+  }
+
   const branches = plan.subtasks.map((s) => runs.get(s.key)?.commit && runs.get(s.key)?.branch).filter(Boolean) as string[];
-  if (hasRepo && branches.length && merge?.ok) {
-    lines.push("", `결과를 작업 폴더의 \`${merge.branch}\` 브랜치에 자동으로 합쳤어요 (커밋 ${merge.head.slice(0, 8)}). 각 하위 작업 브랜치도 그대로 남아 있어요.`);
+  if (hasRepo && merge?.ok) {
+    lines.push("", `결과를 작업 폴더의 \`${merge.branch}\` 브랜치에 자동으로 합쳤어요 (커밋 ${merge.head.slice(0, 8)}). 하위 작업 브랜치와 결과 브랜치도 그대로 남아 있어요.`);
+  } else if (hasRepo && agg?.ok && agg.branch) {
+    const why = merge && !merge.ok ? `자동으로 합치지 못했어요. ${merge.reason}` : gate.reason;
+    if (why) lines.push("", why);
+    lines.push("", "작업 폴더에 합치려면:", "```", `git merge ${agg.branch}`, "```");
   } else if (hasRepo && branches.length) {
-    if (merge && !merge.ok) lines.push("", `자동으로 합치지 못했어요. ${merge.reason}`);
     lines.push("", "각 하위 작업의 변경은 브랜치에 커밋으로 남겼어요. 작업 폴더에 합치려면:", "```", `git merge ${branches.join(" ")}`, "```");
+  }
+
+  const usage = usageByModel(extra.attempts);
+  if (usage.length > 1 || (usage.length === 1 && usage[0]!.runs > 1)) {
+    lines.push("", "#### 모델별 사용량", "| 모델 | 실행 | 입력 토큰 | 출력 토큰 | 비용 |", "| --- | --- | --- | --- | --- |");
+    for (const u of usage) lines.push(`| ${u.model} | ${u.runs} | ${u.input} | ${u.output} | ${u.cost ? `$${u.cost.toFixed(4)}` : "-"} |`);
   }
   if (notes.length) lines.push("", ...notes.map((n) => `참고: ${n}`));
   return lines.join("\n");
+}
+
+function usageByModel(attempts: Attempt[]): Array<{ model: string; runs: number; input: number; output: number; cost: number }> {
+  const map = new Map<string, { model: string; runs: number; input: number; output: number; cost: number }>();
+  for (const a of attempts) {
+    const label = `${a.route.model}${a.route.accountLabel ? ` · ${a.route.accountLabel}` : ""}`;
+    const u = map.get(label) ?? { model: label, runs: 0, input: 0, output: 0, cost: 0 };
+    u.runs += 1;
+    u.input += a.outcome.usage?.inputTokens ?? 0;
+    u.output += a.outcome.usage?.outputTokens ?? 0;
+    u.cost += a.outcome.costUsd ?? 0;
+    map.set(label, u);
+  }
+  return [...map.values()].sort((x, y) => y.cost - x.cost || y.output - x.output);
 }

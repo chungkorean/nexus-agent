@@ -39,7 +39,7 @@ function bool(v: unknown): boolean | null {
 /**
  * 결과 처리 설정: Paperclip 에이전트 설정에 값이 있으면 그것을, 없으면 Nexus 설정 화면(routing.yaml results)의 값을 쓴다.
  */
-export function withResultPolicy(s: DispatchSettings, config: Record<string, unknown>, policy: ResultPolicy): DispatchSettings {
+export function withResultPolicy(s: DispatchSettings, config: Record<string, unknown>, policy: Pick<ResultPolicy, "autoMerge" | "markDoneOnSuccess">): DispatchSettings {
   return {
     ...s,
     autoMerge: bool(config.autoMerge) ?? policy.autoMerge,

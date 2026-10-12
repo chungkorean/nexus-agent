@@ -136,8 +136,9 @@ describe("작업 분해와 병렬 실행", () => {
     expect(paperclip.issues.get("NEX-1")!.status).toBe("done");
 
     // 서로 다른 계정·모델, 그리고 실제로 동시에
-    const work = claude.filter((c) => !c.prompt.includes("작업 분해 요청"));
-    const oc = readLog(process.env.FAKE_OPENCODE_LOG!).filter((c) => !c.text.includes("작업 분해 요청"));
+    const work = claude.filter((c) => !c.prompt.includes("작업 분해 요청") && !c.prompt.includes("전체 변경 검토 요청"));
+    const ocAll = readLog(process.env.FAKE_OPENCODE_LOG!).filter((c) => !c.text.includes("작업 분해 요청"));
+    const oc = ocAll.filter((c) => !c.text.includes("전체 변경 검토 요청"));
     expect(work.map((c) => c.claudeConfigDir).sort()).toEqual([accDir("claude-a"), accDir("claude-b")]);
     expect(oc).toHaveLength(1);
     expect(oc[0]!.model).toEqual({ providerID: "openai", modelID: "gpt-5" });
@@ -159,6 +160,13 @@ describe("작업 분해와 병렬 실행", () => {
     expect(parentComments[0]).toContain("Nexus 작업 계획: 하위 작업 3개");
     expect(parentComments[1]).toContain("Nexus 실행 결과: 완료 (3/3)");
     expect(parentComments[1]).toContain("자동으로 합쳤어요");
+    // 합친 뒤 검토: 구현에 Anthropic과 OpenAI를 모두 써서 같은 회사 모델(review 순서의 첫 번째)로 검토
+    const review = ocAll.find((c) => c.text.includes("전체 변경 검토 요청"))!;
+    expect(review.agent).toBe("plan");
+    expect(review.text).toContain("+made by fake claude sonnet");
+    expect(parentComments[1]).toContain("- 검토: 문제 없음 · openai/gpt-5 (다른 회사 모델이 없어 같은 회사 모델로 검토)");
+    expect(parentComments[1]).toContain("- 테스트: 테스트를 찾지 못했어요");
+    expect(parentComments[1]).toContain("#### 모델별 사용량");
     expect(result.resultJson!.merged).toMatchObject({ branch: expect.any(String) });
     expect(result.billingType).toBe("unknown");
     expect((result.resultJson!.subtasks as unknown[]).length).toBe(3);
@@ -169,8 +177,8 @@ describe("작업 분해와 병렬 실행", () => {
     await executeDispatch(ctx({ autoMerge: false }), deps);
     expect(existsSync(path.join(workdir, "api.txt"))).toBe(false);
     let summary = paperclip.comments.filter((c) => c.issueId === "NEX-1").at(-1)!.body;
-    expect(summary).toContain("git merge nexus/NEX-1/api nexus/NEX-1/ui");
-    expect(summary).not.toContain("자동으로");
+    expect(summary).toContain("자동 합치기가 꺼져 있어요.");
+    expect(summary).toContain("git merge nexus/NEX-1/result");
 
     paperclip.comments.length = 0;
     paperclip.issues.get("NEX-1")!.status = "todo";
@@ -180,7 +188,85 @@ describe("작업 분해와 병렬 실행", () => {
     expect(readFileSync(path.join(workdir, "README.md"), "utf8")).toBe("편집 중\n");
     summary = paperclip.comments.filter((c) => c.issueId === "NEX-1").at(-1)!.body;
     expect(summary).toContain("자동으로 합치지 못했어요. 작업 폴더에 커밋하지 않은 변경이 있어요.");
-    expect(summary).toContain("git merge nexus/NEX-1/api-2 nexus/NEX-1/ui-2");
+    expect(summary).toContain("git merge nexus/NEX-1/result-2");
+  });
+
+  it("하위 작업끼리 같은 파일에서 충돌하면 AI가 풀고, 다른 회사 모델이 검토한 뒤 작업 폴더에 합친다", async () => {
+    process.env.FAKE_SHARED_FILE = "shared.txt";
+    setPlan([
+      { key: "a", title: "A", taskType: "implement", files: ["a"], dependsOn: [] },
+      { key: "b", title: "B", taskType: "implement", files: ["b"], dependsOn: [] },
+    ]);
+    const result = await executeDispatch(ctx(), deps);
+    delete process.env.FAKE_SHARED_FILE;
+    expect(result.exitCode).toBe(0);
+    const resolve = readLog(process.env.FAKE_CLAUDE_LOG!).find((c) => c.prompt.includes("병합 충돌 해결 요청"))!;
+    expect(resolve.model).toBe("opus"); // highRiskAlias(smart)
+    expect(resolve.prompt).toContain("충돌 파일: shared.txt");
+    const merged = readFileSync(path.join(workdir, "shared.txt"), "utf8");
+    expect(merged).toContain("for a");
+    expect(merged).toContain("for b");
+    expect(merged).not.toMatch(/<{7}|>{7}/);
+    // 구현은 모두 Claude였으니 검토는 다른 회사(OpenAI) 모델
+    expect(readLog(process.env.FAKE_OPENCODE_LOG!).some((c) => c.text.includes("전체 변경 검토 요청"))).toBe(true);
+    const summary = paperclip.comments.filter((c) => c.issueId === "NEX-1").at(-1)!.body;
+    expect(summary).toContain("충돌 해결: `nexus/NEX-1/b` (shared.txt) → AI가 풀었어요 · opus");
+    expect(summary).toContain("(구현과 다른 회사 모델)");
+    expect(summary).toContain("자동으로 합쳤어요");
+  });
+
+  it("충돌을 풀지 못하면 작업 폴더를 건드리지 않고 막힘으로 남긴다", async () => {
+    process.env.FAKE_SHARED_FILE = "shared.txt";
+    process.env.FAKE_RESOLVE = "fail";
+    setPlan([
+      { key: "a", title: "A", taskType: "implement", files: ["a"], dependsOn: [] },
+      { key: "b", title: "B", taskType: "implement", files: ["b"], dependsOn: [] },
+    ]);
+    const result = await executeDispatch(ctx(), deps);
+    delete process.env.FAKE_SHARED_FILE;
+    delete process.env.FAKE_RESOLVE;
+    expect(result.exitCode).toBe(1);
+    expect(existsSync(path.join(workdir, "shared.txt"))).toBe(false);
+    expect(paperclip.issues.get("NEX-1")!.status).toBe("blocked");
+    const summary = paperclip.comments.filter((c) => c.issueId === "NEX-1").at(-1)!.body;
+    expect(summary).toContain("### Nexus 실행 결과: 확인 필요 (2/2)");
+    expect(summary).toContain("AI가 풀지 못했어요");
+    expect(summary).toContain("git merge nexus/NEX-1/a nexus/NEX-1/b");
+    expect(git(workdir, "worktree", "list").split("\n")).toHaveLength(1);
+  });
+
+  it("합친 결과가 테스트에 실패하면 작업 폴더에 합치지 않는다", async () => {
+    writeFileSync(path.join(workdir, "package.json"), JSON.stringify({ scripts: { test: "node -e \"console.log('1 failed'); process.exit(1)\"" } }));
+    git(workdir, "add", ".");
+    git(workdir, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "pkg");
+    setPlan(THREE.slice(0, 2));
+    const result = await executeDispatch(ctx(), deps);
+    expect(result.exitCode).toBe(1);
+    expect(existsSync(path.join(workdir, "api.txt"))).toBe(false);
+    expect(paperclip.issues.get("NEX-1")!.status).toBe("blocked");
+    const summary = paperclip.comments.filter((c) => c.issueId === "NEX-1").at(-1)!.body;
+    expect(summary).toContain("### Nexus 실행 결과: 확인 필요 (2/2)");
+    expect(summary).toContain("- 테스트: 실패 (`npm test`)");
+    expect(summary).toContain("1 failed");
+    expect(summary).toContain("테스트를 통과하지 못해서 작업 폴더에 합치지 않았어요.");
+    expect(summary).toContain("git merge nexus/NEX-1/result");
+  });
+
+  it("테스트를 통과하고 검토자가 확인이 필요하다고 하면 합치지 않고 의견을 남긴다", async () => {
+    writeFileSync(path.join(workdir, "package.json"), JSON.stringify({ scripts: { test: "node -e \"process.exit(0)\"" } }));
+    git(workdir, "add", ".");
+    git(workdir, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "pkg");
+    process.env.FAKE_REVIEW_VERDICT = "확인 필요";
+    setPlan(THREE.slice(0, 2));
+    const result = await executeDispatch(ctx(), deps);
+    delete process.env.FAKE_REVIEW_VERDICT;
+    expect(result.exitCode).toBe(0);
+    expect(existsSync(path.join(workdir, "api.txt"))).toBe(false);
+    const summary = paperclip.comments.filter((c) => c.issueId === "NEX-1").at(-1)!.body;
+    expect(summary).toContain("- 테스트: 통과 (`npm test`");
+    expect(summary).toContain("- 검토: 확인 필요");
+    expect(summary).toContain("> - 가짜");
+    expect(summary).toContain("검토자가 확인이 필요하다고 해서");
   });
 
   it("뒤 작업은 앞 작업의 브랜치를 합친 상태에서 시작한다", async () => {

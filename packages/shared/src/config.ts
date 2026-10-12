@@ -27,6 +27,14 @@ export interface ResultPolicy {
   autoMerge: boolean;
   /** 성공하면 이슈를 완료로 바꾼다. 실패하면 항상 막힘으로 바꾼다. */
   markDoneOnSuccess: boolean;
+  /** 하위 작업 브랜치를 합치다 충돌하면 AI에게 한 번 풀게 한다. */
+  resolveConflicts: boolean;
+  /** 합친 결과로 프로젝트 테스트를 돌린다. */
+  runTests: boolean;
+  /** 테스트 명령. 비우면 package.json, pytest 설정 등을 보고 자동으로 찾는다. */
+  testCommand: string;
+  /** 합친 전체 변경을 구현과 다른 회사 모델에게 검토받는다. */
+  review: boolean;
 }
 
 export interface PlanningPolicy {
@@ -189,11 +197,19 @@ export function validateConfig(modelsRaw: unknown, routingRaw: unknown, accounts
         concurrency: clampInt(p.concurrency, 1, 8, 3),
         planner,
       },
-      results: {
-        autoMerge: (r as { results?: Partial<ResultPolicy> }).results?.autoMerge !== false,
-        markDoneOnSuccess: (r as { results?: Partial<ResultPolicy> }).results?.markDoneOnSuccess !== false,
-      },
+      results: readResults((r as { results?: Partial<ResultPolicy> }).results ?? {}),
     },
+  };
+}
+
+function readResults(res: Partial<ResultPolicy>): ResultPolicy {
+  return {
+    autoMerge: res.autoMerge !== false,
+    markDoneOnSuccess: res.markDoneOnSuccess !== false,
+    resolveConflicts: res.resolveConflicts !== false,
+    runTests: res.runTests !== false,
+    testCommand: typeof res.testCommand === "string" ? res.testCommand.trim() : "",
+    review: res.review !== false,
   };
 }
 

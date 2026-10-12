@@ -41,3 +41,11 @@ results:
   autoMerge: true
   # 성공하면 이슈를 완료로 바꿈 (실패하면 항상 막힘으로 바꿈)
   markDoneOnSuccess: true
+  # 하위 작업 브랜치를 합치다 충돌하면 AI(highRiskAlias)에게 한 번 풀게 함
+  resolveConflicts: true
+  # 합친 결과로 프로젝트 테스트를 돌림. 실패하면 작업 폴더에 합치지 않음
+  runTests: true
+  # 테스트 명령. 비우면 package.json의 test 스크립트나 pytest 설정을 보고 자동으로 찾음
+  testCommand: ""
+  # 합친 전체 변경을 구현과 다른 회사 모델(review 순서)에게 검토받음
+  review: true

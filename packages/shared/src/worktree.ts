@@ -1,4 +1,4 @@
-import { mkdirSync, rmSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync } from "node:fs";
 import path from "node:path";
 import { runProcess } from "./process.ts";
 
@@ -127,4 +127,49 @@ export async function mergeIntoWorkdir(repo: string, branches: string[]): Promis
     }
   }
   return { ok: true, branch: current, head: await git(repo, ["rev-parse", "HEAD"]) };
+}
+
+/** 브랜치 하나를 합친다. 충돌하면 충돌 상태를 그대로 두고 충돌 파일 목록을 돌려준다(AI가 풀 수 있게). */
+export async function mergeKeepConflicts(wt: Worktree, branch: string): Promise<{ ok: true } | { ok: false; conflicts: string[]; message: string }> {
+  try {
+    await git(wt.dir, ["merge", "--no-edit", "--no-ff", branch]);
+    return { ok: true };
+  } catch (err) {
+    const conflicts = (await git(wt.dir, ["diff", "--name-only", "--diff-filter=U"]).catch(() => "")).split("\n").filter(Boolean);
+    return { ok: false, conflicts, message: (err as Error).message };
+  }
+}
+
+export async function abortMerge(wt: Worktree): Promise<void> {
+  await git(wt.dir, ["merge", "--abort"]).catch(() => undefined);
+}
+
+/** 충돌 표시(<<<<<<< 등)가 남아 있는 파일 */
+export function filesWithConflictMarkers(dir: string, files: string[]): string[] {
+  return files.filter((f) => {
+    try {
+      return /^(<{7}|>{7})( |$)/m.test(readFileSync(path.join(dir, f), "utf8"));
+    } catch {
+      return false;
+    }
+  });
+}
+
+/** AI가 충돌을 푼 뒤 합치기 커밋을 마무리한다. */
+export async function concludeMerge(wt: Worktree): Promise<string> {
+  await git(wt.dir, ["add", "-A"]);
+  await git(wt.dir, ["commit", "-q", "--no-verify", "--no-edit"]);
+  return git(wt.dir, ["rev-parse", "HEAD"]);
+}
+
+/** 두 커밋 사이의 변경: 파일 목록 요약과 전체 diff */
+export async function diffBetween(dir: string, base: string, head: string): Promise<{ stat: string; diff: string; files: string[] }> {
+  const stat = await git(dir, ["diff", "--stat", `${base}..${head}`]).catch(() => "");
+  const diff = await git(dir, ["diff", "--no-color", `${base}..${head}`], 120).catch(() => "");
+  const files = (await git(dir, ["diff", "--name-only", `${base}..${head}`]).catch(() => "")).split("\n").filter(Boolean);
+  return { stat, diff, files };
+}
+
+export async function headOf(dir: string): Promise<string> {
+  return git(dir, ["rev-parse", "HEAD"]);
 }
