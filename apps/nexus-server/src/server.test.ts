@@ -458,6 +458,62 @@ describe("settings server", () => {
     expect((await fetch(new URL("/api/usage?period=forever", base))).status).toBe(400);
   });
 
+  it("adds, swaps and removes models, keeping task orders valid", async () => {
+    await start();
+    // 새 모델을 추가하면서 같은 저장에서 바로 1순위로 쓴다.
+    const save = await post("/api/save", {
+      newAliases: { "deepseek-flash": { engine: "opencode", model: "deepseek/deepseek-flash", label: "DeepSeek V4.1 Flash" } },
+      taskTypes: { implement: { first: "deepseek-flash", second: "coder" } },
+      planning: { planner: "coder" },
+    });
+    expect(save.status).toBe(200);
+    expect(save.body.sentences).toContain("AI 모델 추가: DeepSeek V4.1 Flash");
+    expect(save.body.sentences).toContain("작업을 나눌 AI: Claude Opus → Claude Sonnet");
+    const models = parse(read("models.yaml"));
+    expect(models.aliases["deepseek-flash"]).toEqual({ engine: "opencode", model: "deepseek/deepseek-flash", label: "DeepSeek V4.1 Flash" });
+    let routing = parse(read("routing.yaml"));
+    expect(routing.taskTypes.implement).toEqual(["deepseek-flash", "coder", "fast"]);
+    expect(routing.planning.planner).toBe("coder");
+
+    // fast만 쓰는 작업이 있으면 지우지 못하게 막는다.
+    await post("/api/save", { taskTypes: { test: { first: "fast", second: null } } });
+    const blocked = await post("/api/save", { removeAliases: ["fast"] });
+    expect(blocked.status).toBe(400);
+    expect(blocked.body.problems.join("\n")).toContain("테스트 작성 작업에 쓸 AI가 하나도 남지 않아요");
+
+    // 바꿔 주면 지워지고, 모든 순서에서 빠진다.
+    const ok = await post("/api/save", { removeAliases: ["fast"], taskTypes: { test: { first: "coder", second: null } } });
+    expect(ok.status).toBe(200);
+    expect(parse(read("models.yaml")).aliases.fast).toBeUndefined();
+    routing = parse(read("routing.yaml"));
+    expect(routing.taskTypes.implement).toEqual(["deepseek-flash", "coder"]);
+    expect(routing.taskTypes.docs).toEqual(["coder"]);
+    expect(read("routing.yaml")).toContain("# 구현 줄 주석");
+
+    // 위험한 작업이나 작업 나누기에 쓰는 모델은 못 지운다.
+    const inUse = await post("/api/save", { removeAliases: ["smart"] });
+    expect(inUse.status).toBe(400);
+    expect(inUse.body.problems.join("\n")).toContain("위험한 작업에 먼저 쓸 AI");
+
+    expect((await post("/api/save", { newAliases: { bad: { engine: "opencode", model: "no-slash" } } })).status).toBe(400);
+    expect((await post("/api/save", { newAliases: { smart: { engine: "claude-code", model: "opus" } } })).status).toBe(400);
+  });
+
+  it("lists connected models from OpenCode and caches them", async () => {
+    const fake = path.join(tmp, "fake-models.mjs");
+    writeFileSync(fake, `console.log("deepseek/deepseek-flash\\n" + JSON.stringify({ name: "DeepSeek V4.1 Flash", cost: { input: 0.15, output: 0.6 }, limit: { context: 1000000 } }, null, 2) + "\\nxiaomi/mimo-v2-pro");`);
+    writeConfig(configDir);
+    srv = createSettingsServer({ configDir, fallbackDir, stateDir, accountsDir, port: 0, opencodeCommand: [process.execPath, fake] });
+    base = await srv.listen();
+    const res = (await (await fetch(new URL("/api/models", base))).json()) as any;
+    expect(res.ok).toBe(true);
+    expect(res.models.filter((m: any) => m.engine === "claude-code").length).toBeGreaterThan(3);
+    expect(res.models.find((m: any) => m.id === "deepseek/deepseek-flash")).toMatchObject({ name: "DeepSeek V4.1 Flash", context: 1000000 });
+    expect(res.models.find((m: any) => m.id === "xiaomi/mimo-v2-pro")).toMatchObject({ provider: "xiaomi" });
+    expect(res.providers.xiaomi).toBe("Xiaomi MiMo");
+    expect(existsSync(path.join(stateDir, "models-cache.json"))).toBe(true);
+  });
+
   it("reports a broken config file in Korean", async () => {
     writeConfig(configDir, { routing: "taskTypes: [oops\n" });
     await start({ fillUser: false });

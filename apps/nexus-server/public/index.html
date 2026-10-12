@@ -155,6 +155,37 @@ details .inner { padding-top: 8px; }
 .switch input:checked + .track::after { transform: translateX(28px); }
 .switch input:focus-visible + .track { outline: 3px solid var(--focus); outline-offset: 2px; }
 
+/* 모델 고르기 */
+.picker { position: relative; }
+.picker-btn { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 8px; text-align: left; font-weight: 600; padding: 8px 12px; }
+.picker-btn .pk-main { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.picker-btn .pk-sub { display: block; font-size: 13px; font-weight: 400; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.picker-btn .pk-text { min-width: 0; }
+.picker-btn::after { content: "▾"; color: var(--muted); flex: none; }
+.pop {
+  position: absolute; z-index: 25; top: calc(100% + 6px); left: 0; min-width: 100%; width: max-content; max-width: min(92vw, 440px);
+  background: var(--card); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 8px 28px rgba(0,0,0,.18);
+  padding: 6px; max-height: min(70vh, 520px); overflow: auto;
+}
+.pop.right { left: auto; right: 0; }
+.pop-item { display: flex; align-items: center; gap: 10px; width: 100%; border: 0; background: none; border-radius: 10px; min-height: 44px; padding: 8px 12px; font-weight: 500; text-align: left; }
+.pop-item:hover:not(:disabled), .pop-item:focus-visible { background: var(--accent-soft); }
+.pop-item .pi-text { flex: 1; min-width: 0; }
+.pop-item .pi-sub { display: block; font-size: 13px; color: var(--muted); font-weight: 400; overflow-wrap: anywhere; }
+.pop-item .pi-right { margin-left: auto; color: var(--muted); font-size: 14px; flex: none; }
+.pop-item .pi-check { color: var(--accent); font-weight: 700; flex: none; width: 18px; }
+.pop-sep { height: 1px; background: var(--line); margin: 6px 4px; }
+.pop-head { font-size: 13px; font-weight: 700; color: var(--muted); padding: 10px 12px 4px; }
+.pop input[type=text] { min-height: 42px; margin: 4px 0 6px; }
+.pop .pop-note { font-size: 13px; color: var(--muted); padding: 6px 12px; }
+.pop .tag-free { font-size: 12px; color: var(--ok); border: 1px solid var(--ok); border-radius: 999px; padding: 0 6px; margin-left: 6px; }
+@media (max-width: 640px) {
+  .pop { position: fixed; left: 8px; right: 8px; top: auto; bottom: 8px; width: auto; max-width: none; max-height: 75vh; }
+  .pop.right { left: 8px; right: 8px; }
+}
+.model-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.models-top { display: flex; justify-content: flex-end; margin: -4px 0 12px; }
+
 /* 7. 사용량 */
 .period-choices { grid-template-columns: repeat(4, 1fr); }
 .period-choices .choice { text-align: center; padding: 10px 8px; }
@@ -397,14 +428,14 @@ function toDraft(s) {
   const tasks = {};
   for (const t of s.taskTypes) tasks[t.id] = { first: t.chain[0] || "", second: t.chain[1] || "" };
   const aliases = {};
-  for (const a of s.aliases) aliases[a.name] = { label: a.label, model: a.model, accounts: a.accounts.slice() };
+  for (const a of s.aliases) aliases[a.name] = { label: a.label, model: a.model, accounts: a.accounts.slice(), engine: a.engine };
   return {
     tasks,
     aliases,
     preferLocal: s.routing.preferLocal,
     maxFallbacks: s.routing.maxFallbacks,
     highRiskAlias: s.routing.highRiskAlias,
-    planning: { mode: s.routing.planning.mode, concurrency: s.routing.planning.concurrency, maxSubtasks: s.routing.planning.maxSubtasks },
+    planning: { mode: s.routing.planning.mode, concurrency: s.routing.planning.concurrency, maxSubtasks: s.routing.planning.maxSubtasks, planner: s.routing.planning.planner },
     results: { ...s.routing.results },
     budgets: budgetDraft(s.accounts),
   };
@@ -432,6 +463,11 @@ function buildChanges() {
     if (t.first !== o.first || t.second !== o.second) (c.taskTypes = c.taskTypes || {})[id] = { first: t.first, second: t.second || null };
   }
   for (const [name, a] of Object.entries(draft.aliases)) {
+    if (a.isNew) {
+      if (!a.removed) (c.newAliases = c.newAliases || {})[name] = { engine: a.engine, model: a.model.trim(), label: a.label.trim() || a.model, accounts: a.accounts.slice() };
+      continue;
+    }
+    if (a.removed) { (c.removeAliases = c.removeAliases || []).push(name); continue; }
     const o = orig.aliases[name];
     const d = {};
     if (a.label.trim() !== o.label) d.label = a.label.trim();
@@ -442,7 +478,7 @@ function buildChanges() {
   if (draft.preferLocal !== orig.preferLocal) c.preferLocal = draft.preferLocal;
   if (draft.maxFallbacks !== orig.maxFallbacks) c.maxFallbacks = draft.maxFallbacks;
   if (draft.highRiskAlias !== orig.highRiskAlias) c.highRiskAlias = draft.highRiskAlias;
-  for (const k of ["mode", "concurrency", "maxSubtasks"]) {
+  for (const k of ["mode", "concurrency", "maxSubtasks", "planner"]) {
     if (draft.planning[k] !== orig.planning[k]) (c.planning = c.planning || {})[k] = draft.planning[k];
   }
   for (const [id, b] of Object.entries(draft.budgets)) {
@@ -463,6 +499,7 @@ function buildChanges() {
 function countChanges(c) {
   let n = 0;
   n += Object.keys(c.taskTypes || {}).length;
+  n += Object.keys(c.newAliases || {}).length + (c.removeAliases || []).length;
   for (const v of Object.values(c.aliases || {})) n += Object.keys(v).length;
   n += ["preferLocal", "maxFallbacks", "highRiskAlias"].filter((k) => k in c).length;
   n += Object.keys(c.planning || {}).length;
@@ -482,11 +519,146 @@ function refreshBar() {
 }
 
 // ---------- 화면 그리기 ----------
-function aliasOptions(selected, withNone) {
-  const opts = [];
-  if (withNone) opts.push(h("option", { value: "", selected: !selected }, "없음 (넘기지 않음)"));
-  for (const a of S.aliases) opts.push(h("option", { value: a.name, selected: a.name === selected }, draftLabel(a.name)));
-  return opts;
+// ---------- 모델 고르기 ----------
+let C = null;            // 연결해 둔 모델 목록 (/api/models)
+let catalogLoading = null;
+let openPop = null;      // 지금 열린 고르기 창을 닫는 함수
+
+function liveAliases() {
+  return Object.entries(draft.aliases).filter(([, a]) => !a.removed).map(([name, a]) => ({ name, ...a }));
+}
+
+function loadCatalog(refresh) {
+  if (catalogLoading) return catalogLoading;
+  catalogLoading = api("/api/models" + (refresh ? "?refresh=1" : ""))
+    .then((r) => { C = r; })
+    .catch((e) => { C = { models: [], providers: {}, errors: [e.error || "모델 목록을 읽지 못했어요."], fetchedAt: null }; })
+    .finally(() => { catalogLoading = null; });
+  return catalogLoading;
+}
+
+function slugFor(id) {
+  const taken = new Set(Object.keys(draft.aliases));
+  let base = (id.split("/").pop() || id).toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "model";
+  if (!/^[a-z0-9]/.test(base)) base = ("m-" + base).slice(0, 40);
+  let name = base;
+  for (let i = 2; taken.has(name); i++) name = base.slice(0, 36) + "-" + i;
+  return name;
+}
+
+// 목록에서 고른 모델을 내 모델(별칭)로 만든다. 이미 있으면 그걸 쓴다.
+function ensureAlias(m) {
+  const found = liveAliases().find((a) => a.engine === m.engine && a.model === m.id);
+  if (found) return found.name;
+  const removedSame = Object.entries(draft.aliases).find(([, a]) => a.removed && a.engine === m.engine && a.model === m.id);
+  if (removedSame) { removedSame[1].removed = false; return removedSame[0]; }
+  const name = slugFor(m.id);
+  draft.aliases[name] = { label: m.name, model: m.id, accounts: (m.accounts || []).slice(0, 1), engine: m.engine, isNew: true };
+  return name;
+}
+
+function modelSub(a) {
+  return (a.engine === "claude-code" ? "Claude 구독 · " : "OpenCode · ") + a.model;
+}
+
+function closePop() { if (openPop) { const f = openPop; openPop = null; f(); } }
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") closePop(); });
+document.addEventListener("mousedown", (e) => { if (openPop && !e.target.closest(".picker")) closePop(); });
+
+/**
+ * 스크린샷 같은 고르기 창. 첫 화면은 내 모델, "더 많은 모델"에서 연결해 둔 모든 모델을 찾는다.
+ * opts: { value, onPick(별칭 이름 또는 ""), allowNone, exclude, label, engine(이 종류만), catalogOnly, onPickModel(m), button }
+ */
+function modelPicker(opts) {
+  const wrap = h("div", { class: "picker" });
+  const cur = opts.value && draft.aliases[opts.value];
+  const btn = opts.button || h("button", { type: "button", class: "picker-btn", "aria-haspopup": "dialog", "aria-label": opts.label },
+    h("span", { class: "pk-text" },
+      h("span", { class: "pk-main" }, cur ? draftLabel(opts.value) : (opts.allowNone ? "없음 (넘기지 않음)" : "골라 주세요")),
+      cur ? h("span", { class: "pk-sub" }, modelSub(cur)) : null));
+  btn.addEventListener("click", () => {
+    if (openPop && wrap.querySelector(".pop")) { closePop(); return; }
+    closePop();
+    const pop = h("div", { class: "pop", role: "dialog", "aria-label": opts.label || "모델 고르기" });
+    if (wrap.getBoundingClientRect().left > window.innerWidth / 2) pop.classList.add("right");
+    wrap.append(pop);
+    openPop = () => pop.remove();
+    const pick = (name) => { closePop(); opts.onPick(name); };
+    const pickModel = (m) => { closePop(); if (opts.onPickModel) opts.onPickModel(m); else opts.onPick(ensureAlias(m)); };
+
+    function mine() {
+      const rows = [];
+      if (opts.allowNone) rows.push(h("button", { type: "button", class: "pop-item", onclick: () => pick("") },
+        h("span", { class: "pi-check" }, !opts.value ? "✓" : ""), h("span", { class: "pi-text" }, "없음 (넘기지 않음)")));
+      for (const a of liveAliases().filter((x) => !opts.exclude || !opts.exclude.includes(x.name))) {
+        rows.push(h("button", { type: "button", class: "pop-item", onclick: () => pick(a.name) },
+          h("span", { class: "pi-check" }, a.name === opts.value ? "✓" : ""),
+          h("span", { class: "pi-text" }, draftLabel(a.name), h("span", { class: "pi-sub" }, modelSub(a)))));
+      }
+      rows.push(h("div", { class: "pop-sep" }));
+      rows.push(h("button", { type: "button", class: "pop-item", onclick: () => more() }, h("span", { class: "pi-check" }), h("span", { class: "pi-text" }, "더 많은 모델"), h("span", { class: "pi-right" }, "›")));
+      pop.replaceChildren(h("div", { class: "pop-head" }, "내 모델"), ...rows);
+    }
+
+    function more() {
+      const search = h("input", { type: "text", placeholder: "모델 이름이나 회사로 찾기 (예: deepseek, gemini)", "aria-label": "모델 찾기", autocomplete: "off", spellcheck: "false" });
+      const list = h("div", {});
+      const head = [];
+      if (!opts.catalogOnly) head.push(h("button", { type: "button", class: "pop-item", onclick: () => mine() }, h("span", { class: "pi-check" }, "‹"), h("span", { class: "pi-text" }, "내 모델로 돌아가기")));
+      const custom = h("input", { type: "text", placeholder: opts.engine === "claude-code" ? "예: claude-opus-5-5" : "예: deepseek/deepseek-chat", "aria-label": "모델 ID 직접 입력", autocomplete: "off", spellcheck: "false" });
+      const stamp = h("span", {});
+      const foot = h("div", {},
+        h("div", { class: "pop-sep" }),
+        h("div", { class: "pop-head" }, "목록에 없으면 직접 입력"),
+        h("div", { class: "inline-form", style: "padding:0 6px" }, custom,
+          h("button", { type: "button", class: "small-btn", onclick: () => {
+            const id = custom.value.trim();
+            if (!id) return;
+            const engine = id.includes("/") ? "opencode" : "claude-code";
+            if (opts.engine && engine !== opts.engine) { toast(opts.engine === "claude-code" ? "Claude 구독 모델은 '/' 없이 적어요." : "OpenCode 모델은 회사/모델 형식으로 적어요.", "bad"); return; }
+            pickModel({ engine, id, name: id, provider: engine === "claude-code" ? "anthropic" : id.split("/")[0] });
+          } }, "쓰기")),
+        h("div", { class: "pop-note" }, stamp,
+          h("button", { type: "button", class: "small-btn", style: "min-height:34px", onclick: async () => {
+            C = null; draw();
+            await loadCatalog(true); draw();
+          } }, "목록 새로 고침")));
+      pop.replaceChildren(...head, search, list, foot);
+      search.addEventListener("input", draw);
+      setTimeout(() => search.focus(), 0);
+
+      function draw() {
+        stamp.textContent = C && C.fetchedAt ? "목록: " + formatUntil(C.fetchedAt) + " 기준 · " : "";
+        if (!C) { list.replaceChildren(h("p", { class: "pop-note" }, "연결해 둔 모델을 찾는 중이에요. 처음에는 조금 걸려요...")); return; }
+        const q = search.value.trim().toLowerCase();
+        const have = new Set(liveAliases().map((a) => a.engine + " " + a.model));
+        const items = C.models.filter((m) => (!opts.engine || m.engine === opts.engine) &&
+          (!q || (m.id + " " + m.name + " " + (C.providers[m.provider] || m.provider)).toLowerCase().includes(q)));
+        const rows = [];
+        if (C.errors && C.errors.length) rows.push(h("div", { class: "notice bad", style: "margin:6px" }, C.errors.join(" ")));
+        let group = null;
+        let shown = 0;
+        for (const m of items) {
+          if (shown >= 300) { rows.push(h("p", { class: "pop-note" }, "더 있어요. 찾기 칸에 이름을 적어 좁혀 주세요.")); break; }
+          if (m.provider !== group) { group = m.provider; rows.push(h("div", { class: "pop-head" }, C.providers[m.provider] || m.provider)); }
+          const free = m.cost && m.cost.input === 0 && m.cost.output === 0;
+          const sub = [m.id, m.context ? Math.round(m.context / 1000) + "K 문맥" : "", m.cost && !free ? "$" + m.cost.input + " / $" + m.cost.output : ""].filter(Boolean).join(" · ");
+          rows.push(h("button", { type: "button", class: "pop-item", onclick: () => pickModel(m) },
+            h("span", { class: "pi-check" }, have.has(m.engine + " " + m.id) ? "✓" : ""),
+            h("span", { class: "pi-text" }, m.name, free ? h("span", { class: "tag-free" }, "무료") : null, h("span", { class: "pi-sub" }, sub))));
+          shown++;
+        }
+        if (!shown) rows.push(h("p", { class: "pop-note" }, q ? "찾는 모델이 없어요." : "연결해 둔 모델이 없어요. 'opencode auth login'으로 API 키를 넣거나 계정 칸에서 로그인해 주세요."));
+        list.replaceChildren(...rows);
+      }
+      draw();
+      if (!C) loadCatalog(false).then(draw);
+    }
+
+    if (opts.catalogOnly) more(); else mine();
+  });
+  wrap.append(btn);
+  return wrap;
 }
 
 function sectionTitle(n, text) {
@@ -500,17 +672,16 @@ function renderTasks() {
     return h("tr", {},
       h("td", { class: "task" }, t.name, extra),
       h("td", {},
-        h("label", { class: "cell-label", for: "first-" + t.id }, "1순위"),
-        h("select", { id: "first-" + t.id, "aria-label": t.name + " 1순위", onchange: (e) => { d.first = e.target.value; if (d.second === d.first) d.second = ""; renderTasksOnly(); } }, aliasOptions(d.first, false))),
+        h("span", { class: "cell-label" }, "1순위"),
+        modelPicker({ value: d.first, label: t.name + " 1순위", onPick: (v) => { if (!v) return; d.first = v; if (d.second === d.first) d.second = ""; rerender(); } })),
       h("td", {},
-        h("label", { class: "cell-label", for: "second-" + t.id }, "2순위"),
-        h("select", { id: "second-" + t.id, "aria-label": t.name + " 2순위", onchange: (e) => { d.second = e.target.value; refreshBar(); } },
-          aliasOptions(d.second, true).filter((o) => o.value !== d.first))),
+        h("span", { class: "cell-label" }, "2순위"),
+        modelPicker({ value: d.second, label: t.name + " 2순위", allowNone: true, exclude: [d.first], onPick: (v) => { if (v && v === d.first) return; d.second = v; rerender(); } })),
     );
   });
   return h("section", { class: "card", id: "sec-tasks" },
     sectionTitle(1, "작업별 담당 AI"),
-    h("p", { class: "help" }, "작업마다 먼저 맡길 AI(1순위)와, 1순위가 한도에 걸리거나 로그인이 풀렸을 때 대신 맡길 AI(2순위)를 골라요."),
+    h("p", { class: "help" }, "작업마다 먼저 맡길 AI(1순위)와, 1순위가 한도에 걸리거나 로그인이 풀렸을 때 대신 맡길 AI(2순위)를 골라요. '더 많은 모델'에서 연결해 둔 모든 모델을 고를 수 있어요."),
     h("table", { class: "tasks" },
       h("thead", {}, h("tr", {}, h("th", {}, "작업"), h("th", {}, "1순위"), h("th", {}, "2순위"))),
       h("tbody", {}, rows)));
@@ -540,7 +711,10 @@ function renderPlanning() {
       h("label", { class: "field" }, h("span", {}, "최대 몇 개로"),
         h("select", { disabled: off, onchange: (e) => { p.maxSubtasks = Number(e.target.value); refreshBar(); } },
           range(S.limits.maxSubtasks[0], S.limits.maxSubtasks[1], p.maxSubtasks).map((n) => h("option", { value: String(n), selected: n === p.maxSubtasks }, n + "개까지 나누기"))),
-        h("span", { class: "small" }, "한 작업을 이 개수보다 잘게 나누지 않아요."))));
+        h("span", { class: "small" }, "한 작업을 이 개수보다 잘게 나누지 않아요."))),
+    h("div", { class: "field", style: "margin-top:14px" }, h("span", {}, "작업을 나눌 AI"),
+      modelPicker({ value: p.planner, label: "작업을 나눌 AI", onPick: (v) => { if (!v) return; p.planner = v; rerender(); } }),
+      h("span", { class: "small" }, "큰 작업을 읽고 하위 작업 목록을 만드는 AI예요. 똑똑한 모델이 좋아요.")));
 }
 
 function renderResults() {
@@ -838,10 +1012,34 @@ function renderAccounts() {
     list, addBox);
 }
 
+function aliasUsage(name) {
+  const used = [];
+  for (const t of S.taskTypes) {
+    const d = draft.tasks[t.id];
+    if (d.first === name) used.push(t.name + " 1순위");
+    else if (d.second === name) used.push(t.name + " 2순위");
+  }
+  if (draft.highRiskAlias === name) used.push("위험한 작업에 먼저 쓸 AI");
+  if (draft.planning.planner === name) used.push("작업을 나눌 AI");
+  return used;
+}
+
+function removeModel(name) {
+  const used = aliasUsage(name);
+  if (used.length) {
+    dialog("지금 쓰는 모델이에요", h("div", {}, h("p", {}, draftLabel(name) + "은(는) 이렇게 쓰고 있어요. 다른 모델로 바꾼 뒤 지워 주세요."), h("ul", {}, used.map((u) => h("li", {}, u)))),
+      [{ text: "확인", value: null, kind: "primary" }]);
+    return;
+  }
+  const a = draft.aliases[name];
+  if (a.isNew) delete draft.aliases[name]; else a.removed = true;
+  rerender();
+}
+
 function renderModels() {
-  const cards = S.aliases.map((a) => {
+  const cards = liveAliases().map((a) => {
     const d = draft.aliases[a.name];
-    const same = S.accounts.filter((acc) => acc.engine === a.engine);
+    const same = S.accounts.filter((acc) => acc.engine === d.engine);
     // 이미 지운 계정이 남아 있으면 빼 둔다.
     d.accounts = d.accounts.filter((id) => S.accounts.some((acc) => acc.id === id));
     const checks = same.length
@@ -856,21 +1054,29 @@ function renderModels() {
             h("span", {}, acc.label),
             idx >= 0 && d.accounts.length > 1 ? h("span", { class: "order" }, (idx + 1) + "번째") : null);
         }))
-      : h("p", { class: "small" }, a.engine === "claude-code" ? "Claude 구독 계정이 아직 없어요. 위 '계정' 칸에서 추가하면 여기서 고를 수 있어요." : "OpenCode 계정이 아직 없어요. 위 '계정' 칸에서 추가하면 여기서 고를 수 있어요.");
+      : h("p", { class: "small" }, d.engine === "claude-code" ? "Claude 구독 계정을 따로 추가하지 않았어요. 평소 로그인한 계정을 써요." : "OpenCode 계정을 따로 추가하지 않았어요. 'opencode auth login'으로 넣은 API 키를 그대로 써요.");
+    const changeBtn = h("button", { type: "button", class: "small-btn" }, "모델 바꾸기");
     return h("div", { class: "model" },
-      h("div", { class: "model-head" }, h("strong", {}, d.label || a.label), h("span", { class: "tag" }, a.engine === "claude-code" ? "Claude 구독" : "OpenCode")),
+      h("div", { class: "model-head" }, h("strong", {}, d.label || a.name), h("span", { class: "tag" }, d.isNew ? "새로 추가" : d.engine === "claude-code" ? "Claude 구독" : "OpenCode")),
+      h("div", { class: "small", style: "margin:-4px 0 8px" }, "모델: " + d.model),
       h("label", { class: "field" }, h("span", {}, "보여 줄 이름"),
         h("input", { type: "text", maxlength: "80", value: d.label, oninput: (e) => { d.label = e.target.value; refreshBar(); }, onchange: () => rerender() })),
       h("div", { class: "field", style: "margin-top:10px" }, h("span", {}, "쓸 계정"), checks,
-        h("span", { class: "small" }, "아무것도 고르지 않으면 평소 로그인한 계정을 써요. 여러 개 고르면 고른 순서대로 쓰고, 한도에 걸리면 다음 계정으로 넘어가요.")),
-      h("details", {}, h("summary", {}, "고급"),
-        h("div", { class: "inner" }, h("label", { class: "field" }, h("span", {}, "모델 ID"),
-          h("input", { type: "text", spellcheck: "false", autocomplete: "off", value: d.model, oninput: (e) => { d.model = e.target.value; refreshBar(); } }),
-          h("span", { class: "small" }, a.engine === "claude-code" ? "opus, sonnet, haiku 또는 전체 모델 ID를 적어요." : "공급자/모델 형식으로 적어요. 예: openai/gpt-5")))));
+        same.length ? h("span", { class: "small" }, "아무것도 고르지 않으면 평소 로그인한 계정을 써요. 여러 개 고르면 고른 순서대로 쓰고, 한도에 걸리면 다음 계정으로 넘어가요.") : null),
+      h("div", { class: "model-actions" },
+        modelPicker({ button: changeBtn, catalogOnly: true, engine: d.engine, label: "모델 바꾸기", onPickModel: (m) => {
+          const auto = !d.label.trim() || d.label === d.model || (C && C.models.some((x) => x.name === d.label));
+          d.model = m.id;
+          if (auto || d.isNew) d.label = m.name;
+          rerender();
+        } }),
+        h("button", { type: "button", class: "small-btn danger", onclick: () => removeModel(a.name) }, "삭제")));
   });
+  const addBtn = h("button", { type: "button", class: "primary" }, "+ 모델 추가");
   return h("section", { class: "card", id: "sec-models" },
     sectionTitle(5, "AI 모델"),
-    h("p", { class: "help" }, "위 표에서 고르는 AI들이에요. 이름을 알아보기 쉽게 바꾸고, 어떤 계정으로 쓸지 정해요."),
+    h("p", { class: "help" }, "작업 표에서 고르는 내 모델이에요. 연결해 둔 모델 중에서 추가하고, 필요 없는 모델은 지워요. 작업 표에서 '더 많은 모델'로 고르면 여기에 저절로 추가돼요."),
+    h("div", { class: "models-top" }, modelPicker({ button: addBtn, catalogOnly: true, label: "모델 추가", onPickModel: (m) => { ensureAlias(m); rerender(); } })),
     h("div", { class: "models" }, cards));
 }
 
@@ -892,8 +1098,8 @@ function renderMisc() {
         h("select", { onchange: (e) => { draft.maxFallbacks = Number(e.target.value); refreshBar(); } },
           times.sort((a, b) => a - b).map((n) => h("option", { value: String(n), selected: n === draft.maxFallbacks }, n === 0 ? "넘어가지 않음" : n + "번까지"))),
         h("span", { class: "small" }, "한도 초과나 로그인 문제로 실패했을 때 2순위, 3순위 AI로 몇 번까지 넘어갈지 정해요.")),
-      h("label", { class: "field" }, h("span", {}, "위험한 작업에 먼저 쓸 AI"),
-        h("select", { onchange: (e) => { draft.highRiskAlias = e.target.value; refreshBar(); } }, aliasOptions(draft.highRiskAlias, false)),
+      h("div", { class: "field" }, h("span", {}, "위험한 작업에 먼저 쓸 AI"),
+        modelPicker({ value: draft.highRiskAlias, label: "위험한 작업에 먼저 쓸 AI", onPick: (v) => { if (!v) return; draft.highRiskAlias = v; rerender(); } }),
         h("span", { class: "small" }, "로그인, 결제, 삭제처럼 조심해야 하는 작업이에요."))));
 }
 
@@ -932,7 +1138,7 @@ async function load(keepDraft) {
     for (const id of Object.keys(draft.budgets)) if (!fresh.budgets[id]) delete draft.budgets[id];
     for (const id of Object.keys(fresh.budgets)) if (!draft.budgets[id]) draft.budgets[id] = clone(fresh.budgets[id]);
     for (const [name, a] of Object.entries(draft.aliases)) {
-      if (!fresh.aliases[name]) delete draft.aliases[name];
+      if (!fresh.aliases[name] && !a.isNew) delete draft.aliases[name];
     }
     for (const name of Object.keys(fresh.aliases)) {
       if (!draft.aliases[name]) draft.aliases[name] = clone(fresh.aliases[name]);

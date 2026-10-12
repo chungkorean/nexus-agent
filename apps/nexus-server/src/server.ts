@@ -9,7 +9,13 @@ import {
   AccountState,
   accountHasLogin,
   ConfigError,
+  CLAUDE_MODELS,
+  discoverModels,
+  PROVIDER_LABELS,
+  readModelCatalogCache,
   readTelegramSettings,
+  type CommandSpec,
+  type ModelCatalog,
   telegramCall,
   writeTelegramSettings,
   type Account,
@@ -49,6 +55,8 @@ export interface SettingsServerOptions {
   port?: number;
   /** 정적 파일 폴더. 생략하면 이 파일 옆의 public 또는 ../public */
   publicDir?: string;
+  /** 모델 목록을 읽을 OpenCode 명령. 기본 "opencode" */
+  opencodeCommand?: CommandSpec;
   /** 텔레그램 봇을 함께 돌린다. 생략하면 돌리지 않는다(테스트). */
   telegram?: { paperclipUrl?: string; apiBase?: string; pollSeconds?: number };
 }
@@ -146,6 +154,22 @@ export function createSettingsServer(opts: SettingsServerOptions): SettingsServe
       agents,
       paperclipError,
     };
+  }
+
+  let discovering: Promise<ModelCatalog> | null = null;
+  /** 연결해 둔 모델 목록. 캐시가 없거나 새로 고치라고 하면 OpenCode에 묻는다. */
+  async function modelCatalog(refresh: boolean) {
+    const { config } = loadValid();
+    let catalog = refresh ? null : readModelCatalogCache(opts.stateDir);
+    if (!catalog) {
+      discovering ??= discoverModels({ stateDir: opts.stateDir, accounts: Object.values(config.accounts), opencodeCommand: opts.opencodeCommand }).finally(() => {
+        discovering = null;
+      });
+      catalog = await discovering;
+    }
+    // Claude 목록은 프로그램에 들어 있으니 캐시가 오래돼도 최신으로 보여 준다.
+    const models = [...CLAUDE_MODELS, ...catalog.models.filter((m) => m.engine !== "claude-code")];
+    return { ...catalog, models, providers: PROVIDER_LABELS };
   }
 
   function saveTelegram(mutate: (s: TelegramSettings) => void): void {
@@ -501,6 +525,10 @@ export function createSettingsServer(opts: SettingsServerOptions): SettingsServe
         if (req.method !== "GET") return send(res, 405, { ok: false, error: "지원하지 않는 요청이에요." });
         const companyId = url.searchParams.get("companyId");
         return send(res, 200, { ok: true, ...(await telegramState(companyId && /^[A-Za-z0-9_-]{1,80}$/.test(companyId) ? companyId : null)) });
+      }
+      if (pathname === "/api/models") {
+        if (req.method !== "GET") return send(res, 405, { ok: false, error: "지원하지 않는 요청이에요." });
+        return send(res, 200, { ok: true, ...(await modelCatalog(url.searchParams.get("refresh") === "1")) });
       }
       if (pathname === "/api/usage") {
         if (req.method !== "GET") return send(res, 405, { ok: false, error: "지원하지 않는 요청이에요." });

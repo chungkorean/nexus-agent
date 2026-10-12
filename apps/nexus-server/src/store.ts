@@ -3,7 +3,7 @@
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { Document, isMap, isScalar, isSeq, parseDocument, Scalar, YAMLSeq } from "yaml";
-import { ConfigError, PLANNING_MODES, validateConfig, type NexusConfig, type TaskType } from "@nexus/shared";
+import { ConfigError, PLANNING_MODES, validateConfig, type Engine, type NexusConfig, type TaskType } from "@nexus/shared";
 
 export const CONFIG_FILES = { models: "models.yaml", routing: "routing.yaml", accounts: "accounts.yaml" } as const;
 export type FileKey = keyof typeof CONFIG_FILES;
@@ -32,6 +32,8 @@ export const LIMITS = {
 
 export const MAX_BACKUPS = 20;
 
+const ALIAS_NAME = /^[a-z0-9][a-z0-9_-]{0,39}$/i;
+
 /** 예산 칸에 적을 수 있는 최댓값 */
 export const BUDGET_LIMITS = { usd: 100_000, tokens: 100_000_000_000 } as const;
 
@@ -41,10 +43,14 @@ export interface SettingsChanges {
   taskTypes?: Partial<Record<TaskType, { first: string; second: string | null }>>;
   /** 별칭별 표시 이름·모델 ID·사용할 계정 목록 (빈 배열이면 평소 로그인 계정) */
   aliases?: Record<string, { label?: string; model?: string; accounts?: string[] }>;
+  /** 새로 추가할 모델(별칭). 이름은 영문 */
+  newAliases?: Record<string, { engine: Engine; model: string; label?: string; accounts?: string[] }>;
+  /** 지울 모델(별칭). 작업 순서에서도 빠진다 */
+  removeAliases?: string[];
   preferLocal?: boolean;
   maxFallbacks?: number;
   highRiskAlias?: string;
-  planning?: { mode?: "auto" | "always" | "never"; concurrency?: number; maxSubtasks?: number };
+  planning?: { mode?: "auto" | "always" | "never"; concurrency?: number; maxSubtasks?: number; planner?: string };
   /** 실행이 끝난 뒤 처리 */
   /** 계정별 월 예산. null이나 0이면 예산 없음 */
   budgets?: Record<string, { monthlyBudgetUsd?: number | null; monthlyTokenLimit?: number | null }>;
@@ -170,6 +176,45 @@ export function applyChanges(
     if (!alias) return "없음";
     return newLabels[alias] ?? current.aliases[alias]?.label ?? alias;
   };
+
+  // 모델 추가와 삭제를 먼저 처리해, 같은 저장에서 새 모델을 작업 순서에 바로 쓸 수 있게 한다.
+  const created = new Set<string>();
+  const removed = new Set<string>();
+  if (changes.newAliases !== undefined) {
+    if (!isPlainObject(changes.newAliases)) problems.push("새로 추가한 AI 모델을 이해하지 못했어요.");
+    else
+      for (const [name, c] of Object.entries(changes.newAliases)) {
+        if (!isPlainObject(c)) continue;
+        const engine = c.engine as Engine;
+        const model = typeof c.model === "string" ? c.model.trim() : "";
+        const lbl = typeof c.label === "string" && c.label.trim() ? c.label.trim().slice(0, 80) : model;
+        if (!ALIAS_NAME.test(name) || current.aliases[name]) problems.push(`'${lbl}' 모델의 영문 이름(${name})을 쓸 수 없어요. 화면을 새로 고쳐 주세요.`);
+        else if (engine !== "claude-code" && engine !== "opencode") problems.push(`'${lbl}' 모델의 종류를 알 수 없어요.`);
+        else if (!model || (engine === "opencode") !== model.includes("/")) problems.push(`'${lbl}' 모델 ID가 올바르지 않아요.`);
+        else {
+          const node: Record<string, unknown> = { engine, model, label: lbl };
+          const accs = Array.isArray(c.accounts) ? [...new Set(c.accounts.filter((a): a is string => typeof a === "string"))] : [];
+          if (accs.length) node.accounts = accs;
+          models.setIn(["aliases", name], models.createNode(node));
+          dirty.add("models");
+          created.add(name);
+          newLabels[name] = lbl;
+          sentences.push(`AI 모델 추가: ${lbl}`);
+        }
+      }
+  }
+  if (changes.removeAliases !== undefined) {
+    if (!Array.isArray(changes.removeAliases)) problems.push("지울 AI 모델을 이해하지 못했어요.");
+    else
+      for (const name of changes.removeAliases) {
+        if (typeof name !== "string" || !current.aliases[name]) continue;
+        removed.add(name);
+        models.deleteIn(["aliases", name]);
+        dirty.add("models");
+        sentences.push(`AI 모델 삭제: ${label(name)}`);
+      }
+  }
+  const exists = (name: unknown): name is string => typeof name === "string" && ((Boolean(current.aliases[name]) && !removed.has(name)) || created.has(name));
   const accountNames = (ids: string[] | undefined): string =>
     ids && ids.length ? ids.map((id) => current.accounts[id]?.label ?? id).join(", ") : "평소 로그인한 계정";
 
@@ -187,11 +232,11 @@ export function applyChanges(
         if (!isPlainObject(c)) continue;
         const first = c.first;
         const second = c.second ?? null;
-        if (typeof first !== "string" || !current.aliases[first]) {
+        if (!exists(first)) {
           problems.push(`${name} 작업의 1순위 AI를 골라 주세요.`);
           continue;
         }
-        if (second !== null && (typeof second !== "string" || !current.aliases[second])) {
+        if (second !== null && !exists(second)) {
           problems.push(`${name} 작업의 2순위로 고른 AI를 찾지 못했어요.`);
           continue;
         }
@@ -201,7 +246,7 @@ export function applyChanges(
         }
         const prev = current.routing.taskTypes[type] ?? [];
         // 2순위를 '없음'으로 고르면 대신 넘어갈 AI가 없다는 뜻이라 뒤 순서도 비운다.
-        const next = second ? [first, second, ...prev.slice(2).filter((a) => a !== first && a !== second)] : [first];
+        const next = second ? [first, second, ...prev.slice(2).filter((a) => a !== first && a !== second && exists(a))] : [first];
         if (next.join("\n") === prev.join("\n")) continue;
         setList(routing, ["taskTypes", type], next);
         dirty.add("routing");
@@ -218,6 +263,7 @@ export function applyChanges(
     else
       for (const [name, c] of Object.entries(changes.aliases)) {
         const alias = current.aliases[name];
+        if (removed.has(name) || created.has(name)) continue;
         if (!alias) {
           problems.push(`'${name}' AI 모델을 찾지 못했어요. 화면을 새로 고쳐 주세요.`);
           continue;
@@ -280,7 +326,7 @@ export function applyChanges(
     }
   }
   if (changes.highRiskAlias !== undefined) {
-    if (typeof changes.highRiskAlias !== "string" || !current.aliases[changes.highRiskAlias]) problems.push("위험한 작업에 먼저 쓸 AI를 다시 골라 주세요.");
+    if (!exists(changes.highRiskAlias)) problems.push("위험한 작업에 먼저 쓸 AI를 다시 골라 주세요.");
     else if (changes.highRiskAlias !== r.highRiskAlias) {
       setScalar(routing, ["highRiskAlias"], changes.highRiskAlias);
       dirty.add("routing");
@@ -297,6 +343,14 @@ export function applyChanges(
           setScalar(routing, ["planning", "mode"], p.mode);
           dirty.add("routing");
           sentences.push(`작업 나누기: ${PLANNING_MODE_NAMES[r.planning.mode]} → ${PLANNING_MODE_NAMES[p.mode]}`);
+        }
+      }
+      if (p.planner !== undefined) {
+        if (!exists(p.planner)) problems.push("작업을 나눌 AI를 다시 골라 주세요.");
+        else if (p.planner !== r.planning.planner) {
+          setScalar(routing, ["planning", "planner"], p.planner);
+          dirty.add("routing");
+          sentences.push(`작업을 나눌 AI: ${label(r.planning.planner)} → ${label(p.planner)}`);
         }
       }
       if (p.concurrency !== undefined) {
@@ -392,6 +446,24 @@ export function applyChanges(
           sentences.push(`${acc.label}의 ${name}: ${prev ? show(prev) : "없음"} → ${value ? show(value) : "없음"}`);
         }
       }
+  }
+
+  // 지운 모델은 모든 작업 순서에서 뺀다. 순서가 비거나 다른 곳에서 쓰고 있으면 알려 준다.
+  if (removed.size) {
+    for (const [t, name] of TASK_TYPE_NAMES) {
+      const chain = ((routing.getIn(["taskTypes", t]) as { toJSON?: () => unknown } | undefined)?.toJSON?.() ?? []) as string[];
+      const next = chain.filter((a) => !removed.has(a));
+      if (next.length === chain.length) continue;
+      if (!next.length) problems.push(`${name} 작업에 쓸 AI가 하나도 남지 않아요. 다른 AI를 먼저 1순위로 골라 주세요.`);
+      else {
+        setList(routing, ["taskTypes", t], next);
+        dirty.add("routing");
+      }
+    }
+    const highRisk = (routing.get("highRiskAlias") as string | undefined) ?? r.highRiskAlias;
+    if (removed.has(highRisk)) problems.push(`${label(highRisk)}은(는) '위험한 작업에 먼저 쓸 AI'로 쓰고 있어요. 다른 AI로 바꾼 뒤 지워 주세요.`);
+    const planner = (routing.getIn(["planning", "planner"]) as string | undefined) ?? r.planning.planner;
+    if (removed.has(planner)) problems.push(`${label(planner)}은(는) '작업을 나눌 AI'로 쓰고 있어요. 다른 AI로 바꾼 뒤 지워 주세요.`);
   }
 
   sentences.push(...aliasSentences);
