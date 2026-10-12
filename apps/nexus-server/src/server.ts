@@ -27,7 +27,7 @@ import { newPairingCode, TelegramBot } from "./telegram-bot.ts";
 import { AssistantError, type AssistantDeps } from "./assistant.ts";
 import { HttpError } from "./errors.ts";
 import { createExtras } from "./extras.ts";
-import { findWhisper, readVoiceSettings, transcribe, VoiceError, WhisperInstaller } from "./voice.ts";
+import { findWhisper, readVoiceSettings, transcribe, ToolInstaller, VoiceError } from "./voice.ts";
 import { USAGE_PERIODS, usageReport, type UsagePeriod } from "./usage.ts";
 import { buildLoginCommand, defaultLauncher, type LaunchResult, type LoginCommand } from "./login.ts";
 import {
@@ -63,8 +63,8 @@ export interface SettingsServerOptions {
   opencodeCommand?: CommandSpec;
   /** 시험용: Whisper 대신 쓸 명령 */
   whisperCommand?: CommandSpec;
-  /** Whisper 설치 스크립트. 기본은 저장소의 scripts/windows/install-whisper.ps1 */
-  installScript?: string;
+  /** Whisper·ffmpeg 설치 스크립트 폴더. 기본은 저장소의 scripts/windows */
+  scriptsDir?: string;
   /** 텔레그램 봇을 함께 돌린다. 생략하면 돌리지 않는다(테스트). */
   telegram?: { paperclipUrl?: string; apiBase?: string; pollSeconds?: number };
 }
@@ -122,7 +122,7 @@ export function createSettingsServer(opts: SettingsServerOptions): SettingsServe
         },
       })
     : null;
-  const installer = new WhisperInstaller(opts.installScript ?? path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "scripts", "windows", "install-whisper.ps1"));
+  const installer = new ToolInstaller(opts.scriptsDir ?? path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "scripts", "windows"));
   const assistantDeps = (): AssistantDeps => ({ stateDir: opts.stateDir, paperclipUrl, usageText, todayCost });
   const extras = createExtras({
     stateDir: opts.stateDir,

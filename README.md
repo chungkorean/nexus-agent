@@ -116,7 +116,7 @@ Invoke-RestMethod -Method Post -Uri http://localhost:3100/api/adapters/install -
 3. "연결 코드 만들기"를 누르고, 텔레그램에서 내 봇에게 6자리 숫자를 보냅니다. 연결한 대화방의 메시지만 받습니다.
 4. 일을 맡길 Paperclip 회사와 에이전트(보통 개발 부서)를 고릅니다.
 
-이제 봇에게 보낸 글은 첫 줄을 제목으로 이슈가 됩니다. 음성 메시지도 됩니다(아래 음성 비서의 Whisper와 ffmpeg 필요). `/status`는 진행 상황, `/usage`는 이번 달 사용량, `/help`는 안내입니다. 봇은 설정 화면 프로그램 안에서 돌기 때문에 트레이 실행기를 켜 두세요. 토큰은 `%LOCALAPPDATA%\Nexus\state\telegram.json`에만 저장합니다.
+이제 봇에게 보낸 글은 첫 줄을 제목으로 이슈가 됩니다. 음성 메시지도 됩니다(음성 비서 화면에서 Whisper와 ffmpeg를 설치해 두세요). `/status`는 진행 상황, `/usage`는 이번 달 사용량, `/help`는 안내입니다. 봇은 설정 화면 프로그램 안에서 돌기 때문에 트레이 실행기를 켜 두세요. 토큰은 `%LOCALAPPDATA%\Nexus\state\telegram.json`에만 저장합니다.
 
 ### 8. 스튜디오
 
@@ -129,7 +129,7 @@ Nexus 앱 창의 "스튜디오"(http://127.0.0.1:3200/studio)에서 봅니다.
 
 ### 9. 음성 비서
 
-1. Nexus 앱 창의 "음성 비서"(http://127.0.0.1:3200/voice)에서 모델 크기를 고르고 "Whisper 설치"를 누릅니다. whisper.cpp와 음성 모델을 `%LOCALAPPDATA%\Nexus\whisper`에 내려받습니다(보통 466MB). 직접 하려면 `powershell -ExecutionPolicy Bypass -File scripts\windows\install-whisper.ps1 -Model small`.
+1. Nexus 앱 창의 "음성 비서"(http://127.0.0.1:3200/voice)에서 모델 크기를 고르고 "Whisper 설치"를 누릅니다. whisper.cpp와 음성 모델을 `%LOCALAPPDATA%\Nexus\whisper`에 내려받습니다. 모델은 압축판이라 가벼움 60MB, 보통 190MB(추천), 정확 574MB입니다. 나중에 "다른 음성 모델 받기"로 더 받을 수 있습니다. 직접 하려면 `powershell -ExecutionPolicy Bypass -File scripts\windows\install-whisper.ps1 -Model small-q5_1`.
 2. "음성 설정"에서 일을 맡길 Paperclip 회사와 에이전트를 고릅니다. 비워 두면 텔레그램 설정을 따릅니다.
 3. 마이크 버튼을 누르고 말한 뒤 잠시 멈추면 알아듣습니다. 처음 한 번 마이크 권한을 허락해 주세요.
 
@@ -137,7 +137,7 @@ Nexus 앱 창의 "스튜디오"(http://127.0.0.1:3200/studio)에서 봅니다.
 - "진행 상황 알려 줘", "브리핑", "사용량 알려 줘", "도움말"은 명령으로 알아듣습니다.
 - "호출어로 듣기"를 켜면 마이크를 켜 두고 "넥서스"라고 부를 때만 명령으로 듣습니다. "넥서스, 진행 상황 알려 줘"처럼 이어서 말하거나, "넥서스"라고 부르고 삐 소리가 나면 8초 안에 말합니다. 호출어는 설정에서 바꿉니다.
 - 답은 Windows에 들어 있는 음성으로 읽어 줍니다. 끄려면 "답을 소리로 읽어 주기"를 끕니다.
-- 소리는 이 PC에서만 글로 바꾸고 밖으로 보내지 않습니다. 텔레그램 음성 메시지를 받으려면 `winget install Gyan.FFmpeg`로 ffmpeg를 설치한 뒤 다시 시작하세요.
+- 소리는 이 PC에서만 글로 바꾸고 밖으로 보내지 않습니다. 텔레그램 음성 메시지를 받으려면 음성 비서 화면에서 "ffmpeg 설치"를 누르세요(약 90MB, `%LOCALAPPDATA%\Nexus\whisper\ffmpeg.exe`).
 
 ### 10. 작업 나누기 라벨
 

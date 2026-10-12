@@ -139,6 +139,12 @@ describe("음성 비서", () => {
     expect(v.body.setup.ready).toBe(true);
     expect(v.body.settings).toMatchObject({ wakeWord: "넥서스", language: "ko", speak: true });
     expect(v.body.companies).toEqual([{ id: "co-1", name: "내 회사" }]);
+    expect(v.body.whisperModels.map((m: any) => m.id)).toContain("small-q5_1");
+    if (process.platform !== "win32") {
+      const ff = await post("/api/voice/install-ffmpeg", {});
+      expect(ff.status).toBe(400);
+      expect(ff.body.error).toContain("Windows에서만");
+    }
 
     const heard = await fetch(new URL("/api/voice/transcribe", base), { method: "POST", headers: { "content-type": "audio/wav", "x-nexus": "1" }, body: new Uint8Array(wav("넥서스 진행 상황 알려 줘 [음악]")) });
     expect(((await heard.json()) as any).text).toBe("넥서스 진행 상황 알려 줘");

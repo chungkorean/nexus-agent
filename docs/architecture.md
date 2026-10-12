@@ -112,7 +112,7 @@
 - 호출어는 브라우저에서 확인합니다. 글로 바꾼 말의 앞부분을 공백·문장 부호를 빼고 호출어(기본 "넥서스"와 넥써스·nexus 같은 변형)와 비교하고, 한 글자 차이까지 받아 줍니다. 호출어가 아니면 흘려듣고, 알아듣거나 답을 읽는 동안에는 새 말을 받지 않습니다.
 - 말 처리(`assistant.ts`)는 음성과 텔레그램이 함께 씁니다. 40자 이하의 말에서 도움말·사용량·진행 상황을 찾고, 나머지는 할 일로 보고 이슈를 만듭니다. 진행 상황은 Paperclip 이슈 목록에서 진행 중·할 일·막힘을 세고(하위 이슈 제외), 보관함에서 오늘 끝난 작업을 상태별로 셉니다.
 - 설정은 `state/voice.json`(호출어, 언어, 소리로 읽기, 맡길 회사·에이전트, 직접 고른 경로)에 둡니다. Whisper는 `%LOCALAPPDATA%\Nexus\whisper`에서 찾고, 모델이 여럿이면 large-v3-turbo-q5_0, small, base 순으로 고릅니다.
-- `scripts\windows\install-whisper.ps1`은 GitHub 최신 릴리스에서 `whisper-bin-x64.zip`을, Hugging Face `ggerganov/whisper.cpp`에서 `ggml-<모델>.bin`을 받습니다. 설정 화면의 설치 버튼은 이 스크립트를 숨은 PowerShell로 돌리고 출력 마지막 40줄을 보여 줍니다.
+- `scripts\windows\install-whisper.ps1`은 GitHub 최신 릴리스에서 `whisper-bin-x64.zip`을, Hugging Face `ggerganov/whisper.cpp`에서 `ggml-<모델>.bin`을 받습니다. 모델은 압축판(base-q5_1, small-q5_1, large-v3-turbo-q5_0)을 받습니다. `install-ffmpeg.ps1`은 gyan.dev essentials 빌드(안 되면 GitHub BtbN 빌드)에서 `ffmpeg.exe`만 꺼내 같은 폴더에 둡니다. 설치 버튼은 `ToolInstaller`가 이 스크립트들을 숨은 PowerShell로 하나씩 돌리고 출력 마지막 40줄을 보여 줍니다.
 
 ### 앱 창
 

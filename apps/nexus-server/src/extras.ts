@@ -7,14 +7,14 @@ import { PaperclipClient } from "@nexus/paperclip-client";
 import { archiveDir, archiveMediaPath, isArchiveId, listArchive, mediaInfo, readArchive, removeArchive, type CommandSpec } from "@nexus/shared";
 import { respond, type AssistantDeps } from "./assistant.ts";
 import { HttpError } from "./errors.ts";
-import { findWhisper, LANGUAGES, readVoiceSettings, transcribe, voiceDir, WHISPER_MODELS, writeVoiceSettings, type VoiceSettings, type WhisperInstaller } from "./voice.ts";
+import { findWhisper, LANGUAGES, readVoiceSettings, transcribe, voiceDir, WHISPER_MODELS, writeVoiceSettings, DEFAULT_WHISPER_MODEL, type ToolInstaller, type VoiceSettings } from "./voice.ts";
 
 export interface ExtrasOptions {
   stateDir: string;
   paperclipUrl: string;
   assistant: () => AssistantDeps;
   whisperCommand?: CommandSpec;
-  installer: WhisperInstaller;
+  installer: ToolInstaller;
   targets: (companyId: string | null | undefined) => Promise<{ companies: Array<{ id: string; name: string }>; agents: Array<{ id: string; name: string; adapterType: string }>; paperclipError: string | null }>;
 }
 
@@ -49,6 +49,7 @@ export function createExtras(o: ExtrasOptions) {
       },
       install: o.installer.state,
       whisperModels: WHISPER_MODELS,
+      defaultModel: DEFAULT_WHISPER_MODEL,
       languages: LANGUAGES,
       platform: process.platform,
     };
@@ -148,8 +149,13 @@ export function createExtras(o: ExtrasOptions) {
     },
 
     "/api/voice/install": (body) => {
-      o.installer.start(String(body.model ?? "small"), voiceDir());
+      o.installer.startWhisper(String(body.model ?? DEFAULT_WHISPER_MODEL), voiceDir());
       return { ok: true, message: "Whisper를 받기 시작했어요. 모델 크기에 따라 몇 분 걸려요.", install: o.installer.state };
+    },
+
+    "/api/voice/install-ffmpeg": () => {
+      o.installer.startFfmpeg(voiceDir());
+      return { ok: true, message: "ffmpeg를 받기 시작했어요. 1~2분 걸려요.", install: o.installer.state };
     },
 
     "/api/voice/command": async (body) => {

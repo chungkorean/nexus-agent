@@ -22,11 +22,13 @@ export interface VoiceSettings {
 
 export const DEFAULT_VOICE: VoiceSettings = { language: "ko", wakeWord: "넥서스", speak: true };
 
+/** 압축(양자화)한 모델. 원본과 정확도는 거의 같고 크기는 1/3쯤이다. */
 export const WHISPER_MODELS = [
-  { id: "base", label: "빠름", size: "142MB", note: "빠르지만 한국어를 자주 틀려요" },
-  { id: "small", label: "보통", size: "466MB", note: "추천. 대부분의 PC에서 1~3초" },
-  { id: "large-v3-turbo-q5_0", label: "정확", size: "547MB", note: "가장 정확하지만 느린 PC에서는 오래 걸려요" },
+  { id: "base-q5_1", label: "가벼움", size: "60MB", note: "가장 빠르지만 한국어를 가끔 틀려요" },
+  { id: "small-q5_1", label: "보통", size: "190MB", note: "추천. 대부분의 PC에서 1~2초" },
+  { id: "large-v3-turbo-q5_0", label: "정확", size: "574MB", note: "가장 정확하지만 느린 PC에서는 오래 걸려요" },
 ] as const;
+export const DEFAULT_WHISPER_MODEL = "small-q5_1";
 
 export const LANGUAGES = ["ko", "en", "ja", "zh", "auto"];
 
@@ -71,7 +73,7 @@ export interface WhisperSetup {
 }
 
 const EXE = process.platform === "win32" ? ".exe" : "";
-const MODEL_ORDER = ["large-v3-turbo-q5_0", "small", "base"];
+const MODEL_ORDER = ["large-v3-turbo-q5_0", "small-q5_1", "small", "base-q5_1", "base"];
 
 function isFile(p: string | undefined): p is string {
   try {
@@ -163,7 +165,7 @@ export async function transcribe(
     if (ext === ".wav") {
       writeFileSync(wav, audio);
     } else {
-      if (!setup.ffmpeg) throw new VoiceError("음성 메시지를 바꾸려면 ffmpeg가 필요해요. PowerShell에서 'winget install Gyan.FFmpeg'를 실행한 뒤 Nexus를 다시 시작해 주세요.", 409);
+      if (!setup.ffmpeg) throw new VoiceError("음성 메시지를 바꾸려면 ffmpeg가 필요해요. 음성 비서 화면에서 'ffmpeg 설치'를 눌러 주세요.", 409);
       const src = path.join(work, `in${ext}`);
       writeFileSync(src, audio);
       wav = path.join(work, "conv.wav");
@@ -184,27 +186,42 @@ export async function transcribe(
   }
 }
 
+export type InstallJob = "whisper" | "ffmpeg";
+
 export interface InstallState {
   running: boolean;
+  /** 지금(또는 마지막으로) 설치한 것 */
+  job: InstallJob | null;
   model: string | null;
   log: string[];
   error: string | null;
   finishedAt: string | null;
 }
 
-/** Windows에서 install-whisper.ps1을 돌려 Whisper와 모델을 받는다. */
-export class WhisperInstaller {
-  readonly state: InstallState = { running: false, model: null, log: [], error: null, finishedAt: null };
+/** Windows에서 scripts/windows의 설치 스크립트를 숨은 PowerShell로 돌린다. 한 번에 하나만. */
+export class ToolInstaller {
+  readonly state: InstallState = { running: false, job: null, model: null, log: [], error: null, finishedAt: null };
 
-  constructor(private readonly script: string) {}
+  constructor(private readonly scriptsDir: string) {}
 
-  start(model: string, dir: string): void {
-    if (this.state.running) throw new VoiceError("이미 설치하고 있어요.", 409);
+  /** whisper.cpp와 음성 모델 (이미 있으면 모델만 받는다) */
+  startWhisper(model: string, dir: string): void {
     if (!WHISPER_MODELS.some((m) => m.id === model)) throw new VoiceError("모델을 다시 골라 주세요.");
-    if (process.platform !== "win32") throw new VoiceError("자동 설치는 Windows에서만 돼요. whisper.cpp를 직접 설치하고 경로를 적어 주세요.");
-    if (!existsSync(this.script)) throw new VoiceError(`설치 스크립트를 찾지 못했어요: ${this.script}`, 500);
-    Object.assign(this.state, { running: true, model, log: ["설치를 시작해요."], error: null, finishedAt: null });
-    const child = startProcess("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", this.script, "-Model", model, "-Dest", dir], { cwd: os.homedir() });
+    this.run("whisper", "install-whisper.ps1", ["-Model", model, "-Dest", dir], model);
+  }
+
+  /** 텔레그램 음성 메시지(OGG)를 바꿀 ffmpeg.exe */
+  startFfmpeg(dir: string): void {
+    this.run("ffmpeg", "install-ffmpeg.ps1", ["-Dest", dir], null);
+  }
+
+  private run(job: InstallJob, script: string, args: string[], model: string | null): void {
+    if (this.state.running) throw new VoiceError("다른 설치가 끝난 뒤에 눌러 주세요.", 409);
+    if (process.platform !== "win32") throw new VoiceError("자동 설치는 Windows에서만 돼요. 직접 설치하고 '직접 지정'에 경로를 적어 주세요.");
+    const file = path.join(this.scriptsDir, script);
+    if (!existsSync(file)) throw new VoiceError(`설치 스크립트를 찾지 못했어요: ${file}`, 500);
+    Object.assign(this.state, { running: true, job, model, log: ["설치를 시작해요."], error: null, finishedAt: null });
+    const child = startProcess("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", file, ...args], { cwd: os.homedir() });
     child.stdin?.end();
     const push = (chunk: Buffer) => {
       for (const line of chunk.toString("utf8").split(/\r?\n/)) {

@@ -110,35 +110,60 @@ async function loadVoice(companyId) {
   } catch (e) { showError(e); }
 }
 
+function modelPick() {
+  return h("div", { class: "models-pick", role: "radiogroup", "aria-label": "음성 모델" },
+    V.whisperModels.map((m) => h("label", { class: "choice" },
+      h("input", { type: "radio", name: "wm", value: m.id, checked: m.id === V.defaultModel }),
+      h("strong", {}, m.label + " · " + m.size), h("span", {}, m.note))));
+}
+
+async function startInstall(path, body) {
+  try { toast((await api(path, body)).message); loadVoice(); } catch (e) { showError(e); }
+}
+
+function installLog() {
+  const inst = V.install;
+  return [
+    inst.log.length && (inst.running || inst.error) ? h("div", { class: "install-log", style: "margin-top:12px", "aria-live": "polite" }, inst.log.join("\n")) : null,
+    inst.error ? h("div", { class: "notice bad" }, inst.error) : null,
+  ];
+}
+
 function renderSetup() {
   const box = $("setup");
   const s = V.setup;
   const inst = V.install;
-  if (s.ready && !inst.running) {
+  const win = V.platform === "win32";
+  const whisperBusy = inst.running && inst.job === "whisper";
+  if (s.ready && !whisperBusy) {
+    const ffBtn = s.ffmpeg ? null : h("button", { type: "button", class: "small-btn", disabled: inst.running || !win, onclick: () => startInstall("/api/voice/install-ffmpeg", {}) },
+      inst.running && inst.job === "ffmpeg" ? "ffmpeg 설치하는 중..." : "ffmpeg 설치 (약 90MB)");
+    const pick = modelPick();
     box.replaceChildren(h("section", { class: "card" },
       h("div", { class: "ready-line" },
         h("span", { class: "badge ok" }, "준비됐어요"),
         h("span", {}, "Whisper 모델: " + (s.model ? s.model.split(/[\\/]/).pop() : "시험용")),
         h("span", { class: "badge " + (s.ffmpeg ? "ok" : "warn") }, s.ffmpeg ? "텔레그램 음성 메시지도 받아요" : "텔레그램 음성 메시지는 ffmpeg가 필요해요")),
-      s.ffmpeg ? null : h("p", { class: "help", style: "margin:8px 0 0" }, "텔레그램 음성 메시지도 글로 바꾸려면 PowerShell에서 아래 명령을 실행한 뒤 트레이에서 '모두 다시 시작'을 눌러 주세요.", h("code", { class: "cmd" }, "winget install Gyan.FFmpeg"))));
+      s.ffmpeg ? null : h("div", { class: "ready-line", style: "margin-top:10px" },
+        h("span", { class: "help", style: "margin:0" }, "텔레그램 음성 메시지도 글로 바꾸려면 ffmpeg를 설치해 주세요."), ffBtn),
+      h("details", {}, h("summary", {}, "다른 음성 모델 받기"),
+        h("div", { class: "inner" },
+          h("p", { class: "help" }, "받은 모델은 '음성 설정 > 직접 지정'에서 고를 수 있어요. 고르지 않으면 가장 정확한 모델을 써요."),
+          pick,
+          h("button", { type: "button", class: "small-btn", disabled: inst.running || !win, onclick: () => startInstall("/api/voice/install", { model: pick.querySelector("input:checked").value }) }, "이 모델 받기"))),
+      ...installLog()));
     return;
   }
-  const pick = h("div", { class: "models-pick", role: "radiogroup", "aria-label": "음성 모델" },
-    V.whisperModels.map((m) => h("label", { class: "choice" },
-      h("input", { type: "radio", name: "wm", value: m.id, checked: m.id === "small" }),
-      h("strong", {}, m.label + " · " + m.size), h("span", {}, m.note))));
-  const btn = h("button", { type: "button", class: "primary", disabled: inst.running || V.platform !== "win32", onclick: async () => {
-    const model = pick.querySelector("input:checked").value;
-    try { toast((await api("/api/voice/install", { model })).message); loadVoice(); } catch (e) { showError(e); }
-  } }, inst.running ? "설치하는 중..." : "Whisper 설치");
+  const pick = modelPick();
+  const btn = h("button", { type: "button", class: "primary", disabled: inst.running || !win, onclick: () => startInstall("/api/voice/install", { model: pick.querySelector("input:checked").value }) },
+    whisperBusy ? "설치하는 중..." : "Whisper 설치");
   box.replaceChildren(h("section", { class: "card" },
     h("h2", {}, "먼저 Whisper를 설치해요"),
     h("p", { class: "help" }, "말을 글로 바꾸는 프로그램(whisper.cpp)과 음성 모델을 이 PC에 내려받아요. 한 번만 하면 돼요."),
     pick,
-    V.platform === "win32" ? null : h("p", { class: "help" }, "자동 설치는 Windows에서만 돼요. 아래 '음성 설정 > 직접 지정'에 whisper-cli와 모델 경로를 적어 주세요."),
+    win ? null : h("p", { class: "help" }, "자동 설치는 Windows에서만 돼요. 아래 '음성 설정 > 직접 지정'에 whisper-cli와 모델 경로를 적어 주세요."),
     btn,
-    inst.log.length ? h("div", { class: "install-log", style: "margin-top:12px", "aria-live": "polite" }, inst.log.join("\n")) : null,
-    inst.error ? h("div", { class: "notice bad" }, inst.error) : null));
+    ...installLog()));
 }
 
 function renderSettings() {

@@ -1,9 +1,9 @@
 ﻿# Nexus 음성 비서용 Whisper(whisper.cpp)와 음성 모델을 내려받는다.
 # 설정 화면의 'Whisper 설치' 버튼이 이 스크립트를 실행한다. 직접 실행해도 된다:
-#   powershell -ExecutionPolicy Bypass -File scripts\windows\install-whisper.ps1 -Model small
+#   powershell -ExecutionPolicy Bypass -File scripts\windows\install-whisper.ps1 -Model small-q5_1
 param(
-  [ValidateSet("base", "small", "large-v3-turbo-q5_0")]
-  [string]$Model = "small",
+  [ValidateSet("base-q5_1", "small-q5_1", "large-v3-turbo-q5_0", "base", "small")]
+  [string]$Model = "small-q5_1",
   [string]$Dest = (Join-Path $env:LOCALAPPDATA "Nexus\whisper")
 )
 
