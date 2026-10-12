@@ -113,6 +113,8 @@ function Show-Splash {
   $script:splashDetail = $d
   $script:splash = $f
   $f.Show()
+  # 숨김 창으로 실행됐으면(SW_HIDE) 첫 Show가 무시되므로 한 번 더 보이게 한다.
+  [NxWin]::ShowWindow($f.Handle, 5) | Out-Null
   [System.Windows.Forms.Application]::DoEvents()
 }
 function Close-Splash {

@@ -89,7 +89,9 @@ func main() {
 	tray := filepath.Join(repo, "scripts", "windows", "nexus-tray.ps1")
 	cmd := exec.Command(ps, "-NoProfile", "-WindowStyle", "Hidden", "-ExecutionPolicy", "Bypass", "-File", tray, "-OpenApp")
 	cmd.Dir = repo
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: createNoWindow}
+	// HideWindow(SW_HIDE)는 쓰지 않는다: 그 값이 PowerShell이 처음 띄우는 창(설치 화면, 켜는 중 화면)에도
+	// 적용돼 창이 보이지 않게 된다. 콘솔은 CREATE_NO_WINDOW로 이미 없다.
+	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: createNoWindow}
 	if err := cmd.Start(); err != nil {
 		ask("Nexus를 켜지 못했어요: "+err.Error(), mbOK|mbIconError)
 		os.Exit(1)
