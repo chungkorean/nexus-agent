@@ -106,7 +106,8 @@
 - 스튜디오 API: `GET /api/archive?q=&media=1`, `GET /api/archive/item?id=`, `GET /api/archive/media?id=&name=`(Range 지원, 기록에 있는 이름만), `POST /api/archive/continue`(이슈에 `reopen: true` 댓글), `/remove`, `/open`(Windows 탐색기). 미디어 응답에는 `sandbox` CSP를 붙여 AI가 만든 SVG를 새 탭에서 열어도 스크립트가 돌지 않게 합니다.
 
 - 스튜디오 채팅: `POST /api/chat`이 음성 비서와 같은 `respond`(`assistant.ts`)를 `studio` 출처로 부릅니다. 할 일이면 이슈를 만들고 설명 끝에 "Nexus 스튜디오에서 보냄"을 붙입니다. 맡길 곳은 음성 설정의 회사·에이전트를 함께 쓰고(`GET /api/intake`, 저장은 `/api/voice/settings`), 없으면 텔레그램 설정을 따릅니다. 대화 기록은 그 창의 localStorage에 최근 30개만 둡니다.
-- Paperclip 화면: `/paperclip`이 Paperclip을 iframe으로 띄웁니다. Paperclip 서버는 X-Frame-Options나 frame-ancestors를 보내지 않고(`@paperclipai/server` 2026.1005.0 확인), local_trusted 모드는 쿠키 없이 동작해 다른 출처의 iframe에서도 열립니다. Nexus 화면의 CSP는 `frame-src`에 Paperclip 주소(localhost, 127.0.0.1 둘 다)만 허락합니다. `?path=/issues/NEX-12`로 이슈를 바로 열고, `GET /api/paperclip`으로 켜져 있는지 확인합니다. 로그인이 필요한 모드에서는 iframe에 쿠키가 안 갈 수 있어 "새 창으로 열기"를 둡니다.
+- Paperclip 한국어 보기: 설정 화면 프로그램이 3201번(설정 화면 번호+1)에 작은 중계 서버(`paperclip-view.ts`)를 함께 엽니다. 요청과 웹소켓을 Paperclip에 그대로 넘기되 Host·Origin을 Paperclip 주소로 고치고, HTML 응답에만 `<script src="/__nexus/paperclip-ko.js">`를 넣습니다(그래서 HTML은 압축 없이 받음). 스크립트(`public/paperclip-ko.js`)는 `aside` 안의 메뉴 글자 옆에 한국어 이름을 덧붙이고 메뉴 링크 끝에 ? 아이콘과 설명 말풍선을 답니다. Paperclip이 그린 글자는 바꾸지 않고, 다시 그려지면 MutationObserver로 다시 붙입니다. 번호를 못 쓰면 Paperclip을 그대로 띄웁니다. 중계 서버도 127.0.0.1에서만 받고 Host가 127.0.0.1·localhost가 아니면 거절합니다.
+- Paperclip 화면: `/paperclip`이 Paperclip을(중계 서버가 있으면 그 주소로) iframe으로 띄웁니다. Paperclip 서버는 X-Frame-Options나 frame-ancestors를 보내지 않고(`@paperclipai/server` 2026.1005.0 확인), local_trusted 모드는 쿠키 없이 동작해 다른 출처의 iframe에서도 열립니다. Nexus 화면의 CSP는 `frame-src`에 Paperclip 주소(localhost, 127.0.0.1 둘 다)만 허락합니다. `?path=/issues/NEX-12`로 이슈를 바로 열고, `GET /api/paperclip`으로 켜져 있는지 확인합니다. 로그인이 필요한 모드에서는 iframe에 쿠키가 안 갈 수 있어 "새 창으로 열기"를 둡니다.
 
 ### 음성 비서
 

@@ -27,6 +27,7 @@ import { newPairingCode, TelegramBot } from "./telegram-bot.ts";
 import { AssistantError, type AssistantDeps } from "./assistant.ts";
 import { HttpError } from "./errors.ts";
 import { createExtras } from "./extras.ts";
+import { createPaperclipView } from "./paperclip-view.ts";
 import { findWhisper, readVoiceSettings, transcribe, ToolInstaller, VoiceError } from "./voice.ts";
 import { USAGE_PERIODS, usageReport, type UsagePeriod } from "./usage.ts";
 import { buildLoginCommand, defaultLauncher, type LaunchResult, type LoginCommand } from "./login.ts";
@@ -67,6 +68,8 @@ export interface SettingsServerOptions {
   senseVoiceCommand?: CommandSpec;
   /** Whisper·ffmpeg 설치 스크립트 폴더. 기본은 저장소의 scripts/windows */
   scriptsDir?: string;
+  /** Paperclip 한국어 보기(중계) 번호. 기본은 port+1, port가 0이면 0 */
+  paperclipViewPort?: number;
   /** 텔레그램 봇을 함께 돌린다. 생략하면 돌리지 않는다(테스트). */
   telegram?: { paperclipUrl?: string; apiBase?: string; pollSeconds?: number };
 }
@@ -122,15 +125,23 @@ export function createSettingsServer(opts: SettingsServerOptions): SettingsServe
   ensureConfigFiles(opts.configDir, opts.fallbackDir);
   const paperclipUrl = opts.telegram?.paperclipUrl ?? PaperclipClient.resolveBaseUrl();
   // Paperclip 화면을 Nexus 창 안에 띄울 수 있게 Paperclip 주소만 허락한다(localhost와 127.0.0.1 둘 다).
-  const paperclipFrames = (() => {
+  // 한국어 메뉴를 붙여 보여 주는 중계 서버도 허락한다.
+  const view = createPaperclipView({
+    target: paperclipUrl,
+    port: opts.paperclipViewPort ?? (opts.port === 0 ? 0 : (opts.port ?? 3200) + 1),
+    scriptFile: path.join(publicDir, "paperclip-ko.js"),
+  });
+  let viewUrl: string | null = null;
+  const directFrames = (() => {
     try {
       const u = new URL(paperclipUrl);
       const alt = u.hostname === "localhost" ? "127.0.0.1" : u.hostname === "127.0.0.1" ? "localhost" : null;
       return [u.origin, alt ? `${u.protocol}//${alt}${u.port ? `:${u.port}` : ""}` : null].filter(Boolean).join(" ");
     } catch {
-      return "'none'";
+      return "";
     }
   })();
+  const paperclipFrames = () => [directFrames, view.port ? `http://127.0.0.1:${view.port} http://localhost:${view.port}` : ""].filter(Boolean).join(" ") || "'none'";
   const transcribeCommands = { whisper: opts.whisperCommand, sensevoice: opts.senseVoiceCommand };
   const bot = opts.telegram
     ? new TelegramBot({
@@ -156,6 +167,7 @@ export function createSettingsServer(opts: SettingsServerOptions): SettingsServe
     installer,
     targets: (companyId) => paperclipTargets(companyId),
     build: readBuild(),
+    viewUrl: () => viewUrl,
   });
 
   function todayCost(): number {
@@ -585,7 +597,7 @@ export function createSettingsServer(opts: SettingsServerOptions): SettingsServe
       "x-content-type-options": "nosniff",
       "x-frame-options": "DENY",
       "referrer-policy": "no-referrer",
-      "content-security-policy": `default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; frame-src ${paperclipFrames}; frame-ancestors 'none'; base-uri 'none'; form-action 'none'`,
+      "content-security-policy": `default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; frame-src ${paperclipFrames()}; frame-ancestors 'none'; base-uri 'none'; form-action 'none'`,
     });
     res.end(readFileSync(file));
   }
@@ -680,12 +692,16 @@ export function createSettingsServer(opts: SettingsServerOptions): SettingsServe
           const { port } = server.address() as AddressInfo;
           allowedHosts = new Set([`127.0.0.1:${port}`, `localhost:${port}`]);
           bot?.start();
-          resolve(`http://127.0.0.1:${port}/`);
+          void view.listen().then((u) => {
+            viewUrl = u;
+            resolve(`http://127.0.0.1:${port}/`);
+          });
         });
       });
     },
     async close() {
       await bot?.stop();
+      await view.close();
       return new Promise<void>((resolve) => {
         server.closeAllConnections?.();
         server.close(() => resolve());

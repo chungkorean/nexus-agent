@@ -47,8 +47,9 @@ async function start() {
   const wrap = $("wrap");
   let info;
   try { info = await api("/api/paperclip"); } catch (e) { wrap.replaceChildren(h("div", { class: "down" }, h("h2", {}, "설정 화면 프로그램과 연결이 끊겼어요"), h("p", {}, e.error))); return; }
-  // Windows에서 localhost가 IPv6로 풀려 못 여는 일을 피한다.
-  const base = info.url.replace("://localhost", "://127.0.0.1");
+  // 한국어 메뉴를 붙여 주는 중계 주소가 있으면 그것을 쓴다.
+  // 없으면 Paperclip을 그대로 띄운다(Windows에서 localhost가 IPv6로 풀리는 일을 피해 127.0.0.1로).
+  const base = info.view || info.url.replace("://localhost", "://127.0.0.1");
   newWin.href = target(base);
   if (!info.up) {
     wrap.replaceChildren(h("div", { class: "down" },

@@ -218,11 +218,16 @@ describe("음성 비서", () => {
     expect(paperclip.created[0]!.input.description).toContain("Nexus 스튜디오에서 보냄");
     expect((await post("/api/chat", { text: "  " })).status).toBe(400);
 
-    expect((await get("/api/paperclip")).body).toMatchObject({ url: paperclip.url, up: true });
+    const pc = (await get("/api/paperclip")).body;
+    expect(pc).toMatchObject({ url: paperclip.url, up: true });
+    expect(pc.view).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/$/);
     const page = await fetch(new URL("/paperclip", base));
     expect(page.status).toBe(200);
     const port = new URL(paperclip.url).port;
-    expect(page.headers.get("content-security-policy")).toContain(`frame-src http://127.0.0.1:${port} http://localhost:${port};`);
+    const viewPort = new URL(pc.view).port;
+    expect(page.headers.get("content-security-policy")).toContain(`frame-src http://127.0.0.1:${port} http://localhost:${port} http://127.0.0.1:${viewPort} http://localhost:${viewPort};`);
+    // 중계 주소로 Paperclip API를 그대로 쓸 수 있다.
+    expect((await fetch(new URL("/api/companies", pc.view))).status).toBe(200);
   });
 
   it("SenseVoice 엔진으로 바꿔 받아쓴다", async () => {

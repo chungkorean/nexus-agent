@@ -16,6 +16,8 @@ export interface ExtrasOptions {
   commands?: TranscribeCommands;
   installer: ToolInstaller;
   build?: string | null;
+  /** Paperclip 한국어 보기 주소. 못 열었으면 null */
+  viewUrl?: () => string | null;
   targets: (companyId: string | null | undefined) => Promise<{ companies: Array<{ id: string; name: string }>; agents: Array<{ id: string; name: string; adapterType: string }>; paperclipError: string | null }>;
 }
 
@@ -90,7 +92,7 @@ export function createExtras(o: ExtrasOptions) {
         const res = await fetch(o.paperclipUrl, { signal: AbortSignal.timeout(2500) });
         up = res.status < 500;
       } catch {}
-      return { url: o.paperclipUrl, up };
+      return { url: o.paperclipUrl, view: o.viewUrl?.() ?? null, up };
     },
 
     "/api/voice": async (url) => {
