@@ -59,6 +59,7 @@ export class FakePaperclip {
       m = path.match(/^\/api\/companies\/([^/]+)\/agents$/);
       if (m && req.method === "GET") return send(200, [{ id: "agent-dev", name: "개발 부서", adapterType: "nexus_dispatch" }, { id: "agent-hermes", name: "비서", adapterType: "hermes_local" }]);
       m = path.match(/^\/api\/companies\/([^/]+)\/issues$/);
+      if (m && req.method === "GET") return send(200, [...this.issues.values()].filter((i) => !i.companyId || i.companyId === decodeURIComponent(m![1]!)));
       if (m && req.method === "POST") {
         const id = `iss-child-${this.created.length + 1}`;
         this.created.push({ companyId: decodeURIComponent(m[1]!), input: body as Record<string, unknown> });

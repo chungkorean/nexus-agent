@@ -3,9 +3,11 @@ import type { AddressInfo } from "node:net";
 
 export const FAKE_TOKEN = "123456789:AAHfakeTokenForTestsOnly_abcdefghij";
 
-/** getMe, getUpdates, sendMessage, deleteWebhook만 흉내 내는 가짜 텔레그램 Bot API */
+/** getMe, getUpdates, sendMessage, getFile, deleteWebhook만 흉내 내는 가짜 텔레그램 Bot API */
 export class FakeTelegram {
   readonly sent: Array<{ chat_id: number; text: string; message_id: number }> = [];
+  /** getFile로 내려 줄 파일 (file_id → 경로와 내용) */
+  readonly files = new Map<string, { path: string; data: Buffer }>();
   private updates: Array<{ update_id: number; message: Record<string, unknown> }> = [];
   private nextUpdate = 1;
   private nextMessage = 1000;
@@ -31,12 +33,23 @@ export class FakeTelegram {
         res.writeHead(status, { "content-type": "application/json" });
         res.end(JSON.stringify(data));
       };
+      const f = (req.url ?? "").match(/^\/file\/bot([^/]+)\/(.+)$/);
+      if (f) {
+        const file = [...this.files.values()].find((x) => x.path === decodeURIComponent(f[2]!));
+        if (decodeURIComponent(f[1]!) !== FAKE_TOKEN || !file) return send(404, { ok: false });
+        res.writeHead(200, { "content-type": "application/octet-stream" });
+        return res.end(file.data);
+      }
       const m = (req.url ?? "").match(/^\/bot([^/]+)\/(\w+)$/);
       if (!m) return send(404, { ok: false, description: "Not Found" });
       if (decodeURIComponent(m[1]!) !== FAKE_TOKEN) return send(401, { ok: false, error_code: 401, description: "Unauthorized" });
       switch (m[2]) {
         case "getMe":
           return send(200, { ok: true, result: { id: 1, is_bot: true, first_name: "Nexus", username: "nexus_test_bot" } });
+        case "getFile": {
+          const file = this.files.get(String(body.file_id));
+          return file ? send(200, { ok: true, result: { file_id: body.file_id, file_path: file.path } }) : send(400, { ok: false, description: "Bad Request: invalid file_id" });
+        }
         case "deleteWebhook":
           return send(200, { ok: true, result: true });
         case "sendMessage": {

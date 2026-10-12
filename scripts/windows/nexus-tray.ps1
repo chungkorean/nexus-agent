@@ -4,23 +4,44 @@
 param(
   [int]$PaperclipPort = 3100,
   [int]$SettingsPort = 3200,
-  [switch]$NoPaperclip
+  [switch]$NoPaperclip,
+  # 바탕 화면 바로 가기용: Nexus 앱 창을 연다. 이미 켜져 있으면 창만 연다.
+  [switch]$OpenApp
 )
 
 $ErrorActionPreference = "Stop"
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
+$DataDir = if ($env:NEXUS_HOME) { $env:NEXUS_HOME } else { Join-Path $env:LOCALAPPDATA "Nexus" }
+$AppUrl = "http://127.0.0.1:$SettingsPort/studio"
+
+# Edge(없으면 Chrome)의 앱 모드로 Nexus 화면을 주소창 없는 창으로 연다.
+# 따로 쓰는 프로필이라 마이크 권한도 이 창에만 한 번 허락하면 된다.
+function Open-App([string]$url = $AppUrl) {
+  $candidates = @(
+    (Join-Path ${env:ProgramFiles(x86)} "Microsoft\Edge\Application\msedge.exe"),
+    (Join-Path $env:ProgramFiles "Microsoft\Edge\Application\msedge.exe"),
+    (Join-Path $env:ProgramFiles "Google\Chrome\Application\chrome.exe"),
+    (Join-Path ${env:ProgramFiles(x86)} "Google\Chrome\Application\chrome.exe"),
+    (Join-Path $env:LOCALAPPDATA "Google\Chrome\Application\chrome.exe")
+  )
+  $browser = $candidates | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
+  if (-not $browser) { Start-Process $url; return }
+  $appProfile = Join-Path $DataDir "app-profile"
+  Start-Process -FilePath $browser -ArgumentList @("--app=$url", "--user-data-dir=`"$appProfile`"", "--window-size=1280,880", "--no-first-run", "--no-default-browser-check")
+}
+
 # 이미 켜져 있으면 하나만 둔다.
 $created = $false
 $mutex = New-Object System.Threading.Mutex($true, "Local\NexusTray", [ref]$created)
 if (-not $created) {
+  if ($OpenApp) { Open-App; exit 0 }
   [System.Windows.Forms.MessageBox]::Show("Nexus가 이미 켜져 있어요. 화면 오른쪽 아래 작업 표시줄의 N 아이콘을 눌러 주세요.", "Nexus") | Out-Null
   exit 0
 }
 
 $Repo = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
-$DataDir = if ($env:NEXUS_HOME) { $env:NEXUS_HOME } else { Join-Path $env:LOCALAPPDATA "Nexus" }
 $LogDir = Join-Path $DataDir "logs"
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 $PaperclipUrl = "http://localhost:$PaperclipPort"
@@ -110,13 +131,13 @@ function Notify($title, $text, $kind = "Info") {
 }
 
 # ---------- 바로 가기 ----------
-function New-Shortcut($path) {
+function New-Shortcut($path, [switch]$App) {
   $shell = New-Object -ComObject WScript.Shell
   $lnk = $shell.CreateShortcut($path)
   $lnk.TargetPath = Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe"
-  $lnk.Arguments = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$PSCommandPath`""
+  $lnk.Arguments = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$PSCommandPath`"" + $(if ($App) { " -OpenApp" } else { "" })
   $lnk.WorkingDirectory = $Repo
-  $lnk.Description = "Nexus: Paperclip과 설정 화면을 켜 둡니다"
+  $lnk.Description = if ($App) { "Nexus 앱: 스튜디오와 음성 비서를 엽니다 (꺼져 있으면 켭니다)" } else { "Nexus: Paperclip과 설정 화면을 켜 둡니다" }
   $lnk.Save()
 }
 
@@ -132,8 +153,11 @@ $statusItem = New-Object System.Windows.Forms.ToolStripMenuItem "상태 확인 �
 $statusItem.Enabled = $false
 $menu.Items.Add($statusItem) | Out-Null
 $menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator)) | Out-Null
+$openItem = Add-Item "Nexus 앱 열기 (스튜디오, 음성 비서)" { Open-App }
+$openItem.Font = New-Object System.Drawing.Font($openItem.Font, [System.Drawing.FontStyle]::Bold)
 if (-not $NoPaperclip) { Add-Item "Paperclip 열기" { Start-Process $PaperclipUrl } | Out-Null }
-Add-Item "Nexus 설정 열기 (사용량, 예산)" { Start-Process $SettingsUrl } | Out-Null
+Add-Item "음성 비서 열기" { Open-App "http://127.0.0.1:$SettingsPort/voice" } | Out-Null
+Add-Item "Nexus 설정 열기 (모델, 사용량, 예산)" { Open-App $SettingsUrl } | Out-Null
 Add-Item "기록(로그) 폴더 열기" { Start-Process explorer.exe $LogDir } | Out-Null
 $menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator)) | Out-Null
 Add-Item "모두 다시 시작" {
@@ -148,7 +172,7 @@ $autoItem = Add-Item "Windows를 켤 때 자동으로 실행" {
   $autoItem.Checked = Test-Path $StartupLink
 }
 $autoItem.Checked = Test-Path $StartupLink
-Add-Item "바탕 화면에 바로 가기 만들기" { New-Shortcut $DesktopLink; Notify "Nexus" "바탕 화면에 Nexus 바로 가기를 만들었어요." } | Out-Null
+Add-Item "바탕 화면에 Nexus 앱 바로 가기 만들기" { New-Shortcut $DesktopLink -App; Notify "Nexus" "바탕 화면에 Nexus 바로 가기를 만들었어요. 두 번 누르면 Nexus 앱이 열려요." } | Out-Null
 $menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator)) | Out-Null
 Add-Item "종료" {
   $timer.Stop()
@@ -157,7 +181,7 @@ Add-Item "종료" {
   [System.Windows.Forms.Application]::Exit()
 } | Out-Null
 $tray.ContextMenuStrip = $menu
-$tray.add_MouseDoubleClick({ if ($NoPaperclip) { Start-Process $SettingsUrl } else { Start-Process $PaperclipUrl } })
+$tray.add_MouseDoubleClick({ Open-App })
 
 # ---------- 상태 확인과 자동 재시작 ----------
 $script:announced = $false
@@ -186,7 +210,8 @@ function Update-Status {
   $statusItem.Text = ($parts -join " · ")
   if ($allUp -and -not $script:announced) {
     $script:announced = $true
-    Notify "Nexus가 켜졌어요" "아이콘을 두 번 누르면 Paperclip이 열려요. 오른쪽 버튼을 누르면 메뉴가 나와요."
+    Notify "Nexus가 켜졌어요" "아이콘을 두 번 누르면 Nexus 앱이 열려요. 오른쪽 버튼을 누르면 메뉴가 나와요."
+    if ($OpenApp) { Open-App }
   }
 }
 

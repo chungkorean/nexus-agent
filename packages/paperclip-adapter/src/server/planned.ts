@@ -190,7 +190,19 @@ export async function runPlanned(env: PlannedEnv, plan: Plan, planAttempts: Atte
     await log(github.pushed ? `GitHub에 올렸어요${github.prUrl ? `: ${github.prUrl}` : ""}.` : `GitHub에 올리지 못했어요: ${github.error}`);
     summary += "\n" + githubLines(github, agg.branch).join("\n");
   }
-  await postResult(client, issue, settings.stateDir, summary, log);
+  const allAttempts = [...planAttempts, ...[...runs.values()].flatMap((r) => r.attempts), ...aggAttempts];
+  // 만든 이미지·오디오: 합친 결과 브랜치가 있으면 거기서, 없으면 하위 작업 브랜치마다 찾는다.
+  const media = !repo
+    ? [{ root: settings.cwd, files: [...runs.values()].flatMap((r) => r.attempts.at(-1)?.outcome.changedFiles.filter((f) => !f.status?.includes("D")).map((f) => f.file) ?? []) }]
+    : agg?.ok && agg.branch
+      ? [{ root: repo.root, ref: agg.branch, base: repo.head }]
+      : committed.map((c) => ({ root: repo.root, ref: c.branch, base: repo.head }));
+  await postResult(client, issue, settings.stateDir, summary, log, {
+    cwd: settings.cwd,
+    models: allAttempts.map((a) => a.outcome.model || a.route.model),
+    costUsd: allAttempts.reduce((sum, a) => sum + (a.outcome.costUsd ?? 0), 0),
+    media,
+  });
   await finishIssue(client, issue.id, overallOk, { markDoneOnSuccess: settings.markDoneOnSuccess, signal: ctx.signal }, log);
 
   const outcomes: RunOutcome[] = [...planAttempts, ...[...runs.values()].flatMap((r) => r.attempts), ...aggAttempts].map((a) => a.outcome);

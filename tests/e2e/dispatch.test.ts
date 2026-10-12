@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { PaperclipClient } from "@nexus/paperclip-client";
-import { appendUsage, readUsage, writeTelegramSettings } from "@nexus/shared";
+import { appendUsage, listArchive, readUsage, writeTelegramSettings } from "@nexus/shared";
 import { defaultDeps, executeDispatch, type DispatchDeps } from "../../packages/paperclip-adapter/src/server/execute.ts";
 import { readSettings, withResultPolicy } from "../../packages/paperclip-adapter/src/settings.ts";
 import { testDispatchEnvironment } from "../../packages/paperclip-adapter/src/server/test.ts";
@@ -72,6 +72,7 @@ beforeEach(() => {
   process.env.NEXUS_HOME = path.join(tmp, "nexus-home");
   delete process.env.FAKE_CLAUDE_MODE;
   delete process.env.FAKE_OPENCODE_MODE;
+  delete process.env.FAKE_CLAUDE_MEDIA;
 });
 afterEach(() => {
   delete process.env.ANTHROPIC_API_KEY;
@@ -103,6 +104,16 @@ describe("nexus_dispatch 어댑터", () => {
     expect(comment).toContain("claude-output.txt");
     expect(paperclip.issues.get("NEX-1")!.status).toBe("done"); // 열어 두면 Paperclip이 다시 깨운다
     expect(paperclip.requests.every((r) => r.headers.authorization === "Bearer agent-jwt" && r.headers["x-paperclip-run-id"] === "run-1")).toBe(true);
+  });
+
+  it("끝난 작업과 만든 그림을 스튜디오 보관함에 남긴다", async () => {
+    paperclip.issues.set("NEX-1", { id: "NEX-1", identifier: "NEX-1", title: "주인공 콘셉트 그림 만들기", description: "src/art에 그림 파일을 만들어 줘", companyId: "co-1" });
+    process.env.FAKE_CLAUDE_MEDIA = "art/hero.png";
+    expect((await executeDispatch(ctx(), deps)).exitCode).toBe(0);
+    const archive = listArchive(path.join(tmp, "nexus-home", "state"));
+    expect(archive).toHaveLength(1);
+    expect(archive[0]).toMatchObject({ identifier: "NEX-1", status: "완료", models: ["sonnet"], media: [{ name: "hero.png", source: "art/hero.png", kind: "image" }] });
+    expect(logs.join("")).toContain("스튜디오에 모았어요");
   });
 
   it("한 번에 실행해도 바뀐 결과로 테스트를 돌리고 다른 회사 모델에게 검토받는다", async () => {

@@ -1,5 +1,5 @@
 import type { PaperclipClient } from "@nexus/paperclip-client";
-import { notifyTelegram, type AccountState, type Engine, type Executor, type Route, type RunOutcome, type RunRequest, type UsageEntry, type UsageSummary } from "@nexus/shared";
+import { archiveRun, notifyTelegram, type AccountState, type ArchiveInput, type Engine, type Executor, type Route, type RunOutcome, type RunRequest, type UsageEntry, type UsageSummary } from "@nexus/shared";
 import type { PaperclipIssue } from "@nexus/paperclip-client";
 
 export const ENGINE_LABEL: Record<Engine, string> = { opencode: "OpenCode", "claude-code": "Claude Code" };
@@ -162,9 +162,18 @@ export async function finishIssue(
   await safeStatus(client, issueId, ok ? "done" : "blocked", log);
 }
 
-/** 결과 댓글을 남기고, 텔레그램을 연결해 두었으면 같은 내용을 짧게 알린다. */
-export async function postResult(client: PaperclipClient, issue: PaperclipIssue, stateDir: string, body: string, log?: Log): Promise<void> {
+/** 결과를 보관함에 남길 때 함께 적는 것 */
+export type ArchiveExtra = Omit<ArchiveInput, "issue" | "body" | "now">;
+
+/** 결과 댓글을 남기고, 보관함에 기록하고, 텔레그램을 연결해 두었으면 같은 내용을 짧게 알린다. */
+export async function postResult(client: PaperclipClient, issue: PaperclipIssue, stateDir: string, body: string, log?: Log, archive: ArchiveExtra = {}): Promise<void> {
   await safeComment(client, issue.id, body);
+  try {
+    const rec = await archiveRun(stateDir, { issue, body, ...archive });
+    if (rec.media.length) await log?.(`만든 이미지·오디오 ${rec.media.length}개를 스튜디오에 모았어요.`);
+  } catch (err) {
+    await log?.(`작업 기록을 보관하지 못했어요: ${(err as Error).message}`);
+  }
   await notifyTelegram(stateDir, { issueId: issue.id, identifier: issue.identifier, text: telegramSummary(issue, body) }, log);
 }
 

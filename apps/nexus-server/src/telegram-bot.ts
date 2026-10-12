@@ -11,6 +11,8 @@ import {
   writeTelegramSettings,
   type TelegramSettings,
 } from "@nexus/shared";
+import { AssistantError, briefing, createTaskIssue, type AssistantDeps } from "./assistant.ts";
+import { VoiceError } from "./voice.ts";
 
 export const PAIRING_MINUTES = 10;
 export const PAIRING_MAX_FAILURES = 5;
@@ -32,6 +34,8 @@ interface TgMessage {
   chat: TgChat;
   text?: string;
   caption?: string;
+  voice?: { file_id: string; duration?: number; file_size?: number };
+  audio?: { file_id: string; duration?: number; file_size?: number; mime_type?: string; file_name?: string };
   reply_to_message?: { message_id: number };
 }
 
@@ -48,7 +52,13 @@ export interface TelegramBotOptions {
   usageText?: () => string;
   /** 테스트용: 긴 폴링 시간(초) */
   pollSeconds?: number;
+  /** 음성 메시지를 글로 바꾼다. 없으면 음성 메시지를 받지 않는다. */
+  transcribe?: (audio: Buffer, ext: string) => Promise<string>;
+  /** 오늘 쓴 비용 (/status) */
+  todayCost?: () => number;
 }
+
+const MAX_VOICE_BYTES = 20 * 1024 * 1024;
 
 export interface TelegramBotStatus {
   running: boolean;
@@ -65,6 +75,8 @@ const HELP = [
   "",
   "• 할 일을 그냥 보내면 Paperclip 이슈로 등록해요. 첫 줄은 제목, 둘째 줄부터는 설명이에요.",
   "• 결과 알림에 답장하면 그 이슈에 댓글로 남기고 다시 맡겨요.",
+  "• 음성 메시지로 말해도 돼요. PC의 Whisper가 글로 바꿔요.",
+  "• /status 진행 상황",
   "• /usage 이번 달 사용량",
   "• /help 이 안내",
 ].join("\n");
@@ -150,7 +162,7 @@ export class TelegramBot {
   async handle(token: string, msg: TgMessage): Promise<void> {
     const s = this.settings();
     const chatId = msg.chat.id;
-    const text = (msg.text ?? msg.caption ?? "").trim();
+    let text = (msg.text ?? msg.caption ?? "").trim();
     const linked = s.chats.some((c) => c.id === chatId);
 
     if (!linked) {
@@ -183,12 +195,35 @@ export class TelegramBot {
       return;
     }
 
+    const voice = msg.voice ?? msg.audio;
+    if (!text && voice) {
+      if (!this.opts.transcribe) {
+        await this.reply(token, chatId, "음성 메시지는 아직 받지 못해요. 글로 보내 주세요.");
+        return;
+      }
+      try {
+        text = await this.hear(token, voice.file_id, voice.file_size, msg.voice ? ".oga" : extOf(msg.audio?.file_name, msg.audio?.mime_type));
+      } catch (err) {
+        await this.reply(token, chatId, err instanceof VoiceError ? err.message : `음성 메시지를 글로 바꾸지 못했어요: ${(err as Error).message}`);
+        return;
+      }
+      if (!text) {
+        await this.reply(token, chatId, "음성 메시지에서 말을 알아듣지 못했어요. 다시 보내 주세요.");
+        return;
+      }
+      await this.reply(token, chatId, `🎤 들은 말: ${text}`);
+    }
     if (!text) {
-      await this.reply(token, chatId, "글로 보내 주세요. 사진이나 파일은 아직 받지 못해요.");
+      await this.reply(token, chatId, "글이나 음성으로 보내 주세요. 사진이나 파일은 아직 받지 못해요.");
       return;
     }
     if (/^\/(start|help)\b/i.test(text)) {
       await this.reply(token, chatId, HELP);
+      return;
+    }
+    if (/^\/status\b/i.test(text)) {
+      const b = await briefing(this.deps());
+      await this.reply(token, chatId, b.text);
       return;
     }
     if (/^\/usage\b/i.test(text)) {
@@ -220,19 +255,37 @@ export class TelegramBot {
       await this.reply(token, chatId, "일을 맡길 Paperclip 회사와 에이전트를 아직 고르지 않았어요. 설정 화면의 '텔레그램' 칸에서 골라 주세요.");
       return;
     }
-    const [firstLine, ...restLines] = text.split(/\r?\n/);
-    const title = firstLine!.trim().slice(0, 120) || "텔레그램에서 보낸 일";
-    const description = [restLines.join("\n").trim(), firstLine!.trim().length > 120 ? firstLine!.trim() : "", "_(텔레그램에서 보냄)_"].filter(Boolean).join("\n\n");
     let issue;
     try {
-      issue = await client.createIssue(s.companyId, { title, description, status: "todo", assigneeAgentId: s.agentId });
+      issue = await createTaskIssue(this.deps(), text, "telegram", { companyId: s.companyId, agentId: s.agentId });
     } catch (err) {
-      const offline = !/→ \d{3}/.test((err as Error).message);
-      await this.reply(token, chatId, offline ? "Paperclip에 연결하지 못했어요. PC에서 Paperclip이 켜져 있는지 확인해 주세요." : `이슈를 만들지 못했어요: ${(err as Error).message}`);
+      await this.reply(token, chatId, err instanceof AssistantError ? err.message : `이슈를 만들지 못했어요: ${(err as Error).message}`);
       return;
     }
+    const title = issue.title;
     const sent = await this.reply(token, chatId, `${issue.identifier ?? "새 이슈"}로 등록했어요: ${title}\n끝나면 결과를 알려 드릴게요. 이 메시지에 답장하면 이슈에 덧붙여요.`);
     if (sent) rememberMessageLinks(this.opts.stateDir, [{ chatId, messageId: sent, issueId: issue.id, ...(issue.identifier ? { identifier: issue.identifier } : {}) }]);
+  }
+
+  private deps(): AssistantDeps {
+    return {
+      stateDir: this.opts.stateDir,
+      paperclipUrl: this.opts.paperclipUrl ?? PaperclipClient.resolveBaseUrl(),
+      usageText: this.opts.usageText ?? (() => "사용량을 읽지 못했어요."),
+      todayCost: this.opts.todayCost,
+    };
+  }
+
+  /** 음성 메시지를 받아 글로 바꾼다. */
+  private async hear(token: string, fileId: string, size: number | undefined, ext: string): Promise<string> {
+    if (size && size > MAX_VOICE_BYTES) throw new VoiceError("음성 메시지가 너무 길어요. 짧게 나눠 보내 주세요.");
+    const file = await telegramCall<{ file_path?: string }>(token, "getFile", { file_id: fileId }, { apiBase: this.opts.apiBase });
+    if (!file.file_path) throw new Error("파일 주소를 받지 못했어요");
+    const res = await fetch(`${apiRoot(this.opts.apiBase)}/file/bot${token}/${file.file_path}`, { signal: AbortSignal.timeout(60_000) });
+    if (!res.ok) throw new Error(`파일을 받지 못했어요 (${res.status})`);
+    const audio = Buffer.from(await res.arrayBuffer());
+    if (audio.length > MAX_VOICE_BYTES) throw new VoiceError("음성 메시지가 너무 길어요. 짧게 나눠 보내 주세요.");
+    return this.opts.transcribe!(audio, ext);
   }
 
   private async reply(token: string, chatId: number, text: string): Promise<number | null> {
@@ -243,6 +296,19 @@ export class TelegramBot {
       return null;
     }
   }
+}
+
+function extOf(name: string | undefined, mime: string | undefined): string {
+  const fromName = name?.match(/\.[A-Za-z0-9]{2,5}$/)?.[0]?.toLowerCase();
+  if (fromName) return fromName;
+  if (mime?.includes("mpeg")) return ".mp3";
+  if (mime?.includes("wav")) return ".wav";
+  if (mime?.includes("mp4") || mime?.includes("m4a")) return ".m4a";
+  return ".ogg";
+}
+
+function apiRoot(apiBase: string | undefined): string {
+  return (apiBase ?? process.env.NEXUS_TELEGRAM_API ?? "https://api.telegram.org").replace(/\/$/, "");
 }
 
 function chatName(chat: TgChat): string {

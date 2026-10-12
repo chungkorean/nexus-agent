@@ -97,8 +97,31 @@
 - 받은 글은 로컬 모드 Paperclip API(`POST /api/companies/:id/issues`, 토큰 없음)로 고른 에이전트에게 `todo` 이슈로 만듭니다. 등록 안내나 결과 알림에 답장하면 `POST /api/issues/:id/comments`에 `reopen: true`로 댓글을 남겨 다시 깨웁니다. 보낸 메시지와 이슈의 짝은 `state/telegram-messages.json`에 최근 500개까지 둡니다.
 - 결과 알림은 어댑터가 결과 댓글을 남길 때(`postResult`) 같은 내용을 표를 뺀 짧은 글로 바꿔 보냅니다. 실패해도 실행 결과에는 영향이 없습니다.
 
+## 5단계: 스튜디오, 음성 비서, 앱 창
+
+### 작업 기록 보관함
+
+- 어댑터가 결과 댓글을 남기는 `postResult`에서 `archiveRun`(`packages/shared/src/archive.ts`)을 불러 `state/archive/<YYYYMMDD-HHMMSS>-<이슈번호>/`에 `run.json`(이슈, 상태, 모델, 비용, 미디어 목록), `result.md`, `issue.md`, `media/`를 남깁니다. 임시 폴더에 쓴 뒤 이름을 바꿔 반쯤 쓴 기록이 보이지 않게 합니다. 실패해도 실행 결과에는 영향이 없습니다.
+- 미디어 찾기: 한 번에 실행은 이번 실행에서 바뀐 파일(삭제 제외)을 작업 폴더에서 읽습니다. git status 경로는 저장소 맨 위 기준이라 작업 폴더에 없으면 저장소 맨 위에서 찾습니다. 작업 나누기는 결과 브랜치가 있으면 `git diff --name-only <시작 커밋>..<결과 브랜치>`로 찾아 `git show`로 꺼내고, 없으면 하위 작업 브랜치마다 같은 방법으로 찾습니다.
+- 스튜디오 API: `GET /api/archive?q=&media=1`, `GET /api/archive/item?id=`, `GET /api/archive/media?id=&name=`(Range 지원, 기록에 있는 이름만), `POST /api/archive/continue`(이슈에 `reopen: true` 댓글), `/remove`, `/open`(Windows 탐색기). 미디어 응답에는 `sandbox` CSP를 붙여 AI가 만든 SVG를 새 탭에서 열어도 스크립트가 돌지 않게 합니다.
+
+### 음성 비서
+
+- 브라우저(`public/voice.html`)가 마이크 소리를 AudioWorklet으로 20ms씩 받아 소리 크기로 말의 시작과 끝을 찾고(주변 소음의 3배, 0.7초 조용하면 끝), 16kHz 모노 WAV로 바꿔 `POST /api/voice/transcribe`(`audio/wav`, `X-Nexus` 머리글, 20MB까지)로 보냅니다.
+- 서버는 `whisper-cli -m <모델> -f <wav> -nt -np -l ko --prompt <호출어>`를 돌립니다(`apps/nexus-server/src/voice.ts`). 호출어를 prompt로 주면 호출어를 더 잘 알아듣습니다. Whisper가 조용한 소리에서 지어내는 말([음악], "시청해 주셔서 감사합니다" 등)은 버립니다. WAV가 아니면(텔레그램 OGG) ffmpeg로 먼저 바꿉니다.
+- 호출어는 브라우저에서 확인합니다. 글로 바꾼 말의 앞부분을 공백·문장 부호를 빼고 호출어(기본 "넥서스"와 넥써스·nexus 같은 변형)와 비교하고, 한 글자 차이까지 받아 줍니다. 호출어가 아니면 흘려듣고, 알아듣거나 답을 읽는 동안에는 새 말을 받지 않습니다.
+- 말 처리(`assistant.ts`)는 음성과 텔레그램이 함께 씁니다. 40자 이하의 말에서 도움말·사용량·진행 상황을 찾고, 나머지는 할 일로 보고 이슈를 만듭니다. 진행 상황은 Paperclip 이슈 목록에서 진행 중·할 일·막힘을 세고(하위 이슈 제외), 보관함에서 오늘 끝난 작업을 상태별로 셉니다.
+- 설정은 `state/voice.json`(호출어, 언어, 소리로 읽기, 맡길 회사·에이전트, 직접 고른 경로)에 둡니다. Whisper는 `%LOCALAPPDATA%\Nexus\whisper`에서 찾고, 모델이 여럿이면 large-v3-turbo-q5_0, small, base 순으로 고릅니다.
+- `scripts\windows\install-whisper.ps1`은 GitHub 최신 릴리스에서 `whisper-bin-x64.zip`을, Hugging Face `ggerganov/whisper.cpp`에서 `ggml-<모델>.bin`을 받습니다. 설정 화면의 설치 버튼은 이 스크립트를 숨은 PowerShell로 돌리고 출력 마지막 40줄을 보여 줍니다.
+
+### 앱 창
+
+- Tauri로 따로 빌드하는 대신, 트레이 실행기가 Edge(없으면 Chrome)를 `--app=http://127.0.0.1:3200/studio --user-data-dir=%LOCALAPPDATA%\Nexus\app-profile`로 띄웁니다. 추가 설치와 Rust 빌드 없이 주소창 없는 창과 작업 표시줄 아이콘이 생기고, 따로 쓰는 프로필이라 마이크 권한도 그 창에만 남습니다.
+- `nexus-tray.ps1 -OpenApp`(바탕 화면 바로 가기, `scripts\nexus-app.cmd`)은 이미 켜져 있으면 창만 열고, 꺼져 있으면 모두 켠 뒤 창을 엽니다.
+- 화면들은 `public/base.css`와 `public/common.js`(작은 도우미, 위쪽 메뉴)를 함께 씁니다.
+
 ## 바뀐 설계 결정
 
-- `apps/nexus-server`는 설정 화면 전용입니다. 병렬 실행 관리는 별도 서버 없이 어댑터 안에서 합니다. Paperclip이 에이전트당 실행을 하나씩 관리하므로 그 실행 안에서 하위 작업을 동시에 돌리는 편이 단순합니다.
+- `apps/nexus-server`는 사람이 보는 화면(설정, 스튜디오, 음성 비서)과 텔레그램 봇만 맡습니다. 병렬 실행 관리는 별도 서버 없이 어댑터 안에서 합니다. Paperclip이 에이전트당 실행을 하나씩 관리하므로 그 실행 안에서 하위 작업을 동시에 돌리는 편이 단순합니다.
 - 하위 이슈는 담당자를 비워 둡니다. 개발 부서 에이전트에게 배정하면 Paperclip이 하위 이슈마다 하트비트를 깨워 같은 작업을 두 번 실행할 수 있습니다.
 - 어댑터는 `@paperclipai/adapter-utils`를 런타임에 불러오지 않습니다. 필요한 타입만 `adapter-types.ts`에 옮겼고, 빌드할 때 의존성을 모두 묶어 Paperclip이 패키지 설치 없이 불러올 수 있게 했습니다.

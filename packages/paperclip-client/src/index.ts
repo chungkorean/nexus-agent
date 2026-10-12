@@ -90,6 +90,11 @@ export class PaperclipClient {
     return this.request("PATCH", `/api/issues/${encodeURIComponent(issueId)}`, patch);
   }
 
+  /** 회사의 이슈 목록. 브리핑에서 진행 중인 일을 셀 때 쓴다. */
+  listIssues(companyId: string): Promise<Array<PaperclipIssue & { updatedAt?: string; assigneeAgentId?: string | null }>> {
+    return this.request("GET", `/api/companies/${encodeURIComponent(companyId)}/issues`);
+  }
+
   createIssue(companyId: string, input: CreateIssueInput): Promise<PaperclipIssue> {
     return this.request("POST", `/api/companies/${encodeURIComponent(companyId)}/issues`, input);
   }

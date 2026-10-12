@@ -23,6 +23,9 @@ Paperclip의 "개발 부서" 에이전트에 이슈가 배정되면, Nexus가 �
 - **사용량과 예산** (4단계): 모델을 부를 때마다 계정, 모델, 토큰, 비용, 성공 여부를 기록하고 설정 화면의 "사용량"에서 기간별로 보여 줍니다. 계정마다 월 예산(달러)이나 월 토큰 한도를 정하면, 다 쓴 계정은 다음 달 1일까지 건너뛰고 같은 AI의 다음 계정이나 2순위 AI로 넘어갑니다. 기록을 보고 자주 실패하는 모델이 있으면 담당 AI를 바꿔 보라고 제안합니다.
 - **트레이 실행기** (4단계): `scripts\nexus-tray.cmd`를 두 번 누르면 Paperclip과 설정 화면이 창 없이 켜지고, 작업 표시줄 오른쪽 아래에 N 아이콘이 생깁니다. 멈추면 다시 켜고, 메뉴에서 화면 열기, 다시 시작, Windows 시작 시 자동 실행, 종료를 고릅니다.
 - **텔레그램** (4단계): 휴대폰 텔레그램으로 할 일을 보내면 Paperclip 이슈로 등록하고, 작업이 끝나면 결과를 알려 줍니다. 알림에 답장하면 그 이슈에 댓글로 남기고 다시 맡깁니다. 공개 주소 없이 집 PC에서 동작합니다.
+- **스튜디오** (5단계): 끝난 작업마다 결과, 원래 요청, AI가 만든 그림·오디오·영상을 보관함에 모아 한 화면에서 봅니다. 지난 작업을 골라 "이어서 맡기기"를 누르면 그 이슈에 댓글로 남기고 다시 맡깁니다.
+- **음성 비서** (5단계): 이 PC의 Whisper(whisper.cpp)로 말을 글로 바꿔, 할 일은 Paperclip 이슈로 등록하고 "진행 상황 알려 줘"에는 진행 중인 일과 오늘 끝낸 일을 소리로 알려 줍니다. 호출어("넥서스")를 켜 두면 부를 때만 듣습니다. 텔레그램 음성 메시지도 글로 바꿔 받습니다.
+- **Nexus 앱 창** (5단계): 트레이 아이콘을 두 번 누르거나 바탕 화면 바로 가기를 누르면 Edge(없으면 Chrome)의 앱 모드로 주소창 없는 Nexus 창이 열립니다. 위쪽 메뉴로 스튜디오, 음성 비서, 설정, Paperclip을 오갑니다.
 - **GitHub 연동** (선택, 기본 꺼짐): 켜면 결과 브랜치를 작업 폴더의 원격 저장소에 올리고, 원하면 GitHub CLI(`gh`)로 초안 풀 리퀘스트를 만듭니다. 작업 폴더의 git 로그인 정보와 `gh auth login`을 그대로 씁니다.
 
 ## Windows에 설치하기
@@ -101,7 +104,7 @@ Invoke-RestMethod -Method Post -Uri http://localhost:3100/api/adapters/install -
 
 - Paperclip(`npx paperclipai@latest run`)과 설정 화면이 창 없이 켜집니다. 이미 켜져 있으면 그대로 씁니다.
 - 작업 표시줄 오른쪽 아래 N 아이콘: 파란색은 모두 켜짐, 갈색은 켜는 중, 빨간색은 계속 멈춤입니다.
-- 아이콘을 두 번 누르면 Paperclip이 열리고, 오른쪽 버튼을 누르면 메뉴가 나옵니다.
+- 아이콘을 두 번 누르면 Nexus 앱 창(스튜디오)이 열리고, 오른쪽 버튼을 누르면 메뉴가 나옵니다. 메뉴의 "바탕 화면에 Nexus 앱 바로 가기 만들기"로 만든 아이콘은 Nexus가 꺼져 있으면 켜고 앱 창을 엽니다. `scripts\nexus-app.cmd`도 같습니다.
 - 멈추면 자동으로 다시 켭니다(10분에 3번까지). 기록은 `%LOCALAPPDATA%\Nexus\logs`에 남습니다.
 - 메뉴의 "Windows를 켤 때 자동으로 실행"을 누르면 시작 프로그램에 등록됩니다.
 - 끌 때는 메뉴의 "종료"를 누르세요. 함께 켠 Paperclip과 설정 화면도 꺼집니다.
@@ -113,9 +116,30 @@ Invoke-RestMethod -Method Post -Uri http://localhost:3100/api/adapters/install -
 3. "연결 코드 만들기"를 누르고, 텔레그램에서 내 봇에게 6자리 숫자를 보냅니다. 연결한 대화방의 메시지만 받습니다.
 4. 일을 맡길 Paperclip 회사와 에이전트(보통 개발 부서)를 고릅니다.
 
-이제 봇에게 보낸 글은 첫 줄을 제목으로 이슈가 됩니다. `/usage`는 이번 달 사용량, `/help`는 안내입니다. 봇은 설정 화면 프로그램 안에서 돌기 때문에 트레이 실행기를 켜 두세요. 토큰은 `%LOCALAPPDATA%\Nexus\state\telegram.json`에만 저장합니다.
+이제 봇에게 보낸 글은 첫 줄을 제목으로 이슈가 됩니다. 음성 메시지도 됩니다(아래 음성 비서의 Whisper와 ffmpeg 필요). `/status`는 진행 상황, `/usage`는 이번 달 사용량, `/help`는 안내입니다. 봇은 설정 화면 프로그램 안에서 돌기 때문에 트레이 실행기를 켜 두세요. 토큰은 `%LOCALAPPDATA%\Nexus\state\telegram.json`에만 저장합니다.
 
-### 8. 작업 나누기 라벨
+### 8. 스튜디오
+
+Nexus 앱 창의 "스튜디오"(http://127.0.0.1:3200/studio)에서 봅니다.
+
+- 작업이 끝날 때마다 `%LOCALAPPDATA%\Nexus\state\archive\<시각>-<이슈번호>` 폴더에 결과(`result.md`), 원래 요청(`issue.md`), 실행 정보(`run.json`), 만든 이미지·오디오·영상(`media\`)이 쌓입니다. 작업 폴더에 새로 생기거나 바뀐 png, jpg, webp, svg, mp3, wav, mp4 같은 파일을 파일당 50MB, 작업당 60개까지 모읍니다.
+- "작업"은 작업별 카드, "그림·소리"는 모든 미디어를 모아 보여 줍니다. 이슈 번호, 제목, 모델로 찾을 수 있습니다.
+- 카드를 누르면 결과와 미디어를 크게 보고, "이어서 맡기기"에 고칠 점을 적으면 그 이슈에 댓글로 남기고 다시 엽니다. 담당 AI가 이전 결과를 이어서 작업하고, 끝나면 새 기록이 생깁니다.
+- "기록 지우기"는 보관함에서만 지웁니다. Paperclip 이슈와 작업 폴더의 파일은 그대로입니다.
+
+### 9. 음성 비서
+
+1. Nexus 앱 창의 "음성 비서"(http://127.0.0.1:3200/voice)에서 모델 크기를 고르고 "Whisper 설치"를 누릅니다. whisper.cpp와 음성 모델을 `%LOCALAPPDATA%\Nexus\whisper`에 내려받습니다(보통 466MB). 직접 하려면 `powershell -ExecutionPolicy Bypass -File scripts\windows\install-whisper.ps1 -Model small`.
+2. "음성 설정"에서 일을 맡길 Paperclip 회사와 에이전트를 고릅니다. 비워 두면 텔레그램 설정을 따릅니다.
+3. 마이크 버튼을 누르고 말한 뒤 잠시 멈추면 알아듣습니다. 처음 한 번 마이크 권한을 허락해 주세요.
+
+- 할 일을 말하면 이슈로 등록합니다. 잘못 들었으면 "잘못 들었어요, 취소"를 누르면 그 이슈를 취소합니다.
+- "진행 상황 알려 줘", "브리핑", "사용량 알려 줘", "도움말"은 명령으로 알아듣습니다.
+- "호출어로 듣기"를 켜면 마이크를 켜 두고 "넥서스"라고 부를 때만 명령으로 듣습니다. "넥서스, 진행 상황 알려 줘"처럼 이어서 말하거나, "넥서스"라고 부르고 삐 소리가 나면 8초 안에 말합니다. 호출어는 설정에서 바꿉니다.
+- 답은 Windows에 들어 있는 음성으로 읽어 줍니다. 끄려면 "답을 소리로 읽어 주기"를 끕니다.
+- 소리는 이 PC에서만 글로 바꾸고 밖으로 보내지 않습니다. 텔레그램 음성 메시지를 받으려면 `winget install Gyan.FFmpeg`로 ffmpeg를 설치한 뒤 다시 시작하세요.
+
+### 10. 작업 나누기 라벨
 
 - `분해` 또는 `plan`: 작은 이슈라도 나눠서 실행
 - `단일` 또는 `no-plan`: 큰 이슈라도 한 번에 실행
@@ -133,9 +157,9 @@ packages/
   paperclip-client/       Paperclip 이슈 API
   paperclip-adapter/      Paperclip 외부 어댑터 nexus_dispatch (빌드 결과가 dist/)
 apps/
-  nexus-server/           쉬운 설정 화면 (127.0.0.1:3200)
+  nexus-server/           설정 화면, 스튜디오, 음성 비서, 텔레그램 봇 (127.0.0.1:3200)
 config/                   기본 models.yaml, routing.yaml, accounts.yaml
-scripts/                  어댑터 빌드, Windows 환경 점검
+scripts/                  어댑터 빌드, Windows 환경 점검, 트레이 실행기, Whisper 설치
 tests/                    가짜 Paperclip·OpenCode·Claude Code로 돌리는 테스트
 ```
 
@@ -149,3 +173,5 @@ tests/                    가짜 Paperclip·OpenCode·Claude Code로 돌리는 �
 - Windows에서 계정별 폴더 분리(`CLAUDE_CONFIG_DIR`, `XDG_DATA_HOME`)가 되는지
 - 하위 이슈 상태 값(`in_progress`, `done`, `blocked`)을 Paperclip이 그대로 받는지 (안 받으면 상태만 안 바뀌고 댓글은 남음)
 - Paperclip의 실행 시간 제한이 하위 작업 여러 개를 도는 동안 끊지 않는지
+- whisper.cpp Windows 배포 파일 이름(`whisper-bin-x64.zip`)과 실행 파일(`whisper-cli.exe`)이 설치 스크립트가 찾는 대로인지, Visual C++ 런타임 없이 도는지
+- Paperclip 이슈 목록 API(`GET /api/companies/:id/issues`)가 브리핑에 쓸 상태 값을 주는지 (못 읽으면 오늘 끝낸 작업만 알려 줌)

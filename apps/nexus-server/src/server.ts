@@ -24,6 +24,10 @@ import {
   type TelegramSettings,
 } from "@nexus/shared";
 import { newPairingCode, TelegramBot } from "./telegram-bot.ts";
+import { AssistantError, type AssistantDeps } from "./assistant.ts";
+import { HttpError } from "./errors.ts";
+import { createExtras } from "./extras.ts";
+import { findWhisper, readVoiceSettings, transcribe, VoiceError, WhisperInstaller } from "./voice.ts";
 import { USAGE_PERIODS, usageReport, type UsagePeriod } from "./usage.ts";
 import { buildLoginCommand, defaultLauncher, type LaunchResult, type LoginCommand } from "./login.ts";
 import {
@@ -57,6 +61,10 @@ export interface SettingsServerOptions {
   publicDir?: string;
   /** 모델 목록을 읽을 OpenCode 명령. 기본 "opencode" */
   opencodeCommand?: CommandSpec;
+  /** 시험용: Whisper 대신 쓸 명령 */
+  whisperCommand?: CommandSpec;
+  /** Whisper 설치 스크립트. 기본은 저장소의 scripts/windows/install-whisper.ps1 */
+  installScript?: string;
   /** 텔레그램 봇을 함께 돌린다. 생략하면 돌리지 않는다(테스트). */
   telegram?: { paperclipUrl?: string; apiBase?: string; pollSeconds?: number };
 }
@@ -68,6 +76,9 @@ export interface SettingsServer {
 }
 
 const BODY_LIMIT = 256 * 1024;
+const AUDIO_LIMIT = 20 * 1024 * 1024;
+/** 확장자 없이 여는 화면 */
+const PAGES: Record<string, string> = { "/studio": "/studio.html", "/voice": "/voice.html" };
 const ACCOUNT_ID = /^[a-z0-9][a-z0-9_-]{0,39}$/i;
 const ENGINES: Engine[] = ["claude-code", "opencode"];
 
@@ -81,15 +92,6 @@ const MIME: Record<string, string> = {
   ".json": "application/json; charset=utf-8",
 };
 
-class HttpError extends Error {
-  constructor(
-    readonly status: number,
-    message: string,
-    readonly problems?: string[],
-  ) {
-    super(message);
-  }
-}
 
 function findPublicDir(): string {
   const here = path.dirname(fileURLToPath(import.meta.url));
@@ -107,8 +109,53 @@ export function createSettingsServer(opts: SettingsServerOptions): SettingsServe
   ensureConfigFiles(opts.configDir, opts.fallbackDir);
   const paperclipUrl = opts.telegram?.paperclipUrl ?? PaperclipClient.resolveBaseUrl();
   const bot = opts.telegram
-    ? new TelegramBot({ stateDir: opts.stateDir, paperclipUrl, apiBase: opts.telegram.apiBase, pollSeconds: opts.telegram.pollSeconds, usageText })
+    ? new TelegramBot({
+        stateDir: opts.stateDir,
+        paperclipUrl,
+        apiBase: opts.telegram.apiBase,
+        pollSeconds: opts.telegram.pollSeconds,
+        usageText,
+        todayCost,
+        transcribe: (audio, ext) => {
+          const s = readVoiceSettings(opts.stateDir);
+          return transcribe(audio, ext, s, findWhisper(s), { command: opts.whisperCommand, tmpDir: path.join(opts.stateDir, "tmp") });
+        },
+      })
     : null;
+  const installer = new WhisperInstaller(opts.installScript ?? path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "scripts", "windows", "install-whisper.ps1"));
+  const assistantDeps = (): AssistantDeps => ({ stateDir: opts.stateDir, paperclipUrl, usageText, todayCost });
+  const extras = createExtras({
+    stateDir: opts.stateDir,
+    paperclipUrl,
+    assistant: assistantDeps,
+    whisperCommand: opts.whisperCommand,
+    installer,
+    targets: (companyId) => paperclipTargets(companyId),
+  });
+
+  function todayCost(): number {
+    try {
+      return usageReport(loadValid().config, opts.stateDir, "today").totals.costUsd;
+    } catch {
+      return 0;
+    }
+  }
+
+  /** Paperclip 회사와 그 회사의 에이전트 목록. 연결하지 못하면 이유를 돌려준다. */
+  async function paperclipTargets(companyIdQuery: string | null | undefined) {
+    const client = new PaperclipClient(paperclipUrl, undefined, "");
+    let companies: Array<{ id: string; name: string }> = [];
+    let agents: Array<{ id: string; name: string; adapterType: string }> = [];
+    let paperclipError: string | null = null;
+    try {
+      companies = (await withTimeout(client.listCompanies(), 3000)).map((c) => ({ id: c.id, name: c.name ?? c.id }));
+      const companyId = companyIdQuery ?? companies[0]?.id;
+      if (companyId) agents = (await withTimeout(client.listAgents(companyId), 3000)).map((a) => ({ id: a.id, name: a.name ?? a.id, adapterType: a.adapterType ?? "" }));
+    } catch {
+      paperclipError = "Paperclip에 연결하지 못했어요. Paperclip을 켠 뒤 화면을 새로 고쳐 주세요.";
+    }
+    return { companies, agents, paperclipError };
+  }
 
   /** 텔레그램 /usage 명령에 보낼 이번 달 사용량 */
   function usageText(): string {
@@ -128,17 +175,7 @@ export function createSettingsServer(opts: SettingsServerOptions): SettingsServe
   /** 설정 화면의 텔레그램 칸에 보여 줄 상태. 토큰은 내보내지 않는다. */
   async function telegramState(companyIdQuery: string | null) {
     const s = readTelegramSettings(opts.stateDir);
-    const client = new PaperclipClient(paperclipUrl, undefined, "");
-    let companies: Array<{ id: string; name: string }> = [];
-    let agents: Array<{ id: string; name: string; adapterType: string }> = [];
-    let paperclipError: string | null = null;
-    try {
-      companies = (await withTimeout(client.listCompanies(), 3000)).map((c) => ({ id: c.id, name: c.name ?? c.id }));
-      const companyId = companyIdQuery ?? s.companyId ?? companies[0]?.id;
-      if (companyId) agents = (await withTimeout(client.listAgents(companyId), 3000)).map((a) => ({ id: a.id, name: a.name ?? a.id, adapterType: a.adapterType ?? "" }));
-    } catch {
-      paperclipError = "Paperclip에 연결하지 못했어요. Paperclip을 켠 뒤 화면을 새로 고쳐 주세요.";
-    }
+    const { companies, agents, paperclipError } = await paperclipTargets(companyIdQuery ?? s.companyId);
     const pairing = s.pairing && Date.parse(s.pairing.expiresAt) > Date.now() ? { code: s.pairing.code, expiresAt: s.pairing.expiresAt } : null;
     return {
       hasToken: Boolean(s.botToken),
@@ -481,10 +518,34 @@ export function createSettingsServer(opts: SettingsServerOptions): SettingsServe
     });
   }
 
+  function readRaw(req: http.IncomingMessage, limit: number): Promise<Buffer> {
+    return new Promise((resolve, reject) => {
+      const declared = Number(req.headers["content-length"]);
+      if (Number.isFinite(declared) && declared > limit) return reject(new HttpError(413, "소리가 너무 길어요. 짧게 나눠 말해 주세요."));
+      const chunks: Buffer[] = [];
+      let size = 0;
+      let failed = false;
+      req.on("data", (chunk: Buffer) => {
+        if (failed) return;
+        size += chunk.length;
+        if (size > limit) {
+          failed = true;
+          reject(new HttpError(413, "소리가 너무 길어요. 짧게 나눠 말해 주세요."));
+          return;
+        }
+        chunks.push(chunk);
+      });
+      req.on("end", () => {
+        if (!failed) resolve(Buffer.concat(chunks));
+      });
+      req.on("error", reject);
+    });
+  }
+
   function serveStatic(pathname: string, res: http.ServerResponse): void {
     let rel: string;
     try {
-      rel = decodeURIComponent(pathname === "/" ? "/index.html" : pathname);
+      rel = decodeURIComponent(pathname === "/" ? "/index.html" : PAGES[pathname] ?? pathname);
     } catch {
       return send(res, 400, { ok: false, error: "주소가 올바르지 않아요." });
     }
@@ -499,7 +560,7 @@ export function createSettingsServer(opts: SettingsServerOptions): SettingsServe
       "x-content-type-options": "nosniff",
       "x-frame-options": "DENY",
       "referrer-policy": "no-referrer",
-      "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+      "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
     });
     res.end(readFileSync(file));
   }
@@ -537,11 +598,28 @@ export function createSettingsServer(opts: SettingsServerOptions): SettingsServe
         const { config } = loadValid();
         return send(res, 200, { ok: true, ...usageReport(config, opts.stateDir, period) });
       }
-      const route = routes[pathname];
+      const getter = extras.get[pathname];
+      if (getter) {
+        if (req.method !== "GET") return send(res, 405, { ok: false, error: "지원하지 않는 요청이에요." });
+        return send(res, 200, { ok: true, ...(await getter(url)) });
+      }
+      if (pathname === "/api/archive/media") {
+        if (req.method !== "GET" && req.method !== "HEAD") return send(res, 405, { ok: false, error: "지원하지 않는 요청이에요." });
+        return extras.media(url, req, res);
+      }
+      const contentType = String(req.headers["content-type"] ?? "").toLowerCase();
+      if (pathname === "/api/voice/transcribe") {
+        if (req.method !== "POST") return send(res, 405, { ok: false, error: "지원하지 않는 요청이에요." });
+        if (req.headers["x-nexus"] !== "1" || !contentType.startsWith("audio/")) {
+          return send(res, 403, { ok: false, error: "음성 비서 화면에서 보낸 요청만 받아요. 화면을 새로 고쳐 주세요." });
+        }
+        const audio = await readRaw(req, AUDIO_LIMIT);
+        return send(res, 200, { ok: true, ...(await extras.transcribe(audio, contentType)) });
+      }
+      const route = routes[pathname] ?? extras.post[pathname];
       if (!route) return send(res, 404, { ok: false, error: "찾는 기능이 없어요." });
       if (req.method !== "POST") return send(res, 405, { ok: false, error: "지원하지 않는 요청이에요." });
       // CSRF 막기: 다른 사이트의 폼은 이 머리글과 JSON 형식을 보낼 수 없다.
-      const contentType = String(req.headers["content-type"] ?? "").toLowerCase();
       if (req.headers["x-nexus"] !== "1" || !contentType.startsWith("application/json")) {
         return send(res, 403, { ok: false, error: "설정 화면에서 보낸 요청만 받아요. 화면을 새로 고쳐 주세요." });
       }
@@ -558,6 +636,8 @@ export function createSettingsServer(opts: SettingsServerOptions): SettingsServe
     handle(req, res).catch((err: unknown) => {
       if (res.headersSent) return res.end();
       if (err instanceof HttpError) return send(res, err.status, { ok: false, error: err.message, problems: err.problems ?? [] });
+      if (err instanceof VoiceError) return send(res, err.status, { ok: false, error: err.message, problems: [] });
+      if (err instanceof AssistantError) return send(res, 400, { ok: false, error: err.message, problems: [] });
       if (err instanceof ConfigError) return send(res, 400, { ok: false, error: "설정에 문제가 있어요.", problems: err.message.split("\n") });
       console.error(err);
       send(res, 500, { ok: false, error: "알 수 없는 문제가 생겼어요. 설정 화면을 껐다가 다시 켜 주세요." });

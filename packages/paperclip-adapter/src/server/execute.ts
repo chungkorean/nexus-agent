@@ -192,7 +192,14 @@ async function dispatch(ctx: AdapterExecutionContext, deps: DispatchDeps): Promi
   }
   const reviewAttempts = checks?.review?.attempts ?? [];
   const passed = last.outcome.ok && checks?.tests?.status !== "failed";
-  await postResult(client, issue, settings.stateDir, reportComment(classification, attempts, checks), log);
+  const archiveModels = [...planAttempts, ...attempts, ...reviewAttempts].map((a) => a.outcome.model || a.route.model);
+  const archiveCost = [...planAttempts, ...attempts, ...reviewAttempts].reduce((sum, a) => sum + (a.outcome.costUsd ?? 0), 0);
+  await postResult(client, issue, settings.stateDir, reportComment(classification, attempts, checks), log, {
+    cwd,
+    models: archiveModels,
+    costUsd: archiveCost,
+    media: [{ root: cwd, files: last.outcome.changedFiles.filter((f) => !f.status?.includes("D")).map((f) => f.file) }],
+  });
   await finishIssue(client, issue.id, passed, { markDoneOnSuccess: settings.markDoneOnSuccess, signal: ctx.signal }, log);
 
   const all = [...planAttempts, ...attempts, ...reviewAttempts];

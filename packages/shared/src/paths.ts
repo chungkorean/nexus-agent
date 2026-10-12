@@ -8,6 +8,11 @@ function baseDir(env: NodeJS.ProcessEnv): string {
   return path.join(env.XDG_DATA_HOME ?? path.join(os.homedir(), ".local", "share"), "nexus");
 }
 
+/** Nexus 기본 폴더 (%LOCALAPPDATA%\Nexus) */
+export function nexusHome(env: NodeJS.ProcessEnv = process.env): string {
+  return baseDir(env);
+}
+
 /** 사용자가 고치는 설정 폴더 (models.yaml, routing.yaml, accounts.yaml) */
 export function defaultConfigDir(env: NodeJS.ProcessEnv = process.env): string {
   if (env.NEXUS_CONFIG_DIR) return env.NEXUS_CONFIG_DIR;

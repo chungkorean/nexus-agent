@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nexus 스튜디오</title>
+<link rel="stylesheet" href="/base.css">
+<style>
+main { max-width: 1120px; margin: 0 auto; padding: 24px 16px 80px; }
+header h1 { font-size: 28px; margin: 8px 0 4px; }
+header p { margin: 0 0 16px; color: var(--muted); }
+.toolbar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin: 8px 0 18px; }
+.toolbar input[type=search] { flex: 1 1 260px; font: inherit; color: var(--text); background: var(--card); border: 1.5px solid var(--line); border-radius: 10px; padding: 10px 12px; min-height: 48px; }
+.toolbar input[type=search]:focus { outline: 3px solid var(--focus); outline-offset: 2px; }
+.seg { display: inline-flex; border: 1.5px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--card); }
+.seg button { border: 0; border-radius: 0; min-height: 44px; font-weight: 600; color: var(--muted); }
+.seg button[aria-pressed=true] { background: var(--accent-soft); color: var(--accent); }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 250px), 1fr)); gap: 14px; }
+.job { display: flex; flex-direction: column; text-align: left; padding: 0; overflow: hidden; border-radius: 14px; background: var(--card); border: 1px solid var(--line); box-shadow: var(--shadow); min-height: 0; font-weight: 400; }
+.job:hover { border-color: var(--accent); }
+.thumb { aspect-ratio: 16 / 10; background: var(--bg); display: flex; align-items: center; justify-content: center; font-size: 40px; color: var(--muted); overflow: hidden; border-bottom: 1px solid var(--line); }
+.thumb img { width: 100%; height: 100%; object-fit: cover; }
+.job-body { padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 4px; width: 100%; }
+.job-title { font-weight: 700; font-size: 17px; line-height: 1.4; }
+.job-meta { font-size: 14px; color: var(--muted); }
+.job-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.ident { font-size: 14px; font-weight: 700; color: var(--accent); }
+.badge { display: inline-block; font-size: 14px; font-weight: 700; padding: 2px 10px; border-radius: 999px; white-space: nowrap; }
+.badge.ok { background: var(--ok-soft); color: var(--ok); }
+.badge.warn { background: var(--warn-soft); color: var(--warn); }
+.badge.bad { background: var(--bad-soft); color: var(--bad); }
+.media-grid { align-items: start; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr)); gap: 12px; }
+.tile { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--card); display: flex; flex-direction: column; }
+.tile .view { background: var(--bg); display: flex; align-items: center; justify-content: center; min-height: 140px; }
+.tile img { width: 100%; max-height: 260px; object-fit: contain; cursor: zoom-in; display: block; }
+.tile audio { width: calc(100% - 16px); margin: 40px 8px; }
+.tile video { width: 100%; max-height: 260px; display: block; }
+.tile .cap { padding: 8px 10px; font-size: 14px; color: var(--muted); display: flex; justify-content: space-between; gap: 6px; }
+.tile .cap a { color: var(--accent); }
+.empty { border: 1.5px dashed var(--line); border-radius: 14px; padding: 32px 16px; color: var(--muted); text-align: center; }
+
+/* 작업 자세히 */
+.sheet-back { position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 40; display: none; }
+.sheet-back.show { display: block; }
+.sheet { position: absolute; top: 0; right: 0; bottom: 0; width: min(100%, 760px); background: var(--bg); overflow: auto; padding: 20px 20px 60px; box-shadow: -8px 0 28px rgba(0,0,0,.2); }
+.sheet-head { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; }
+.sheet h2 { margin: 2px 0 6px; font-size: 23px; line-height: 1.35; }
+.meta-list { display: flex; flex-wrap: wrap; gap: 4px 16px; color: var(--muted); font-size: 15px; margin-bottom: 8px; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+.continue textarea { width: 100%; min-height: 96px; font: inherit; color: var(--text); background: var(--card); border: 1.5px solid var(--line); border-radius: 10px; padding: 10px 12px; resize: vertical; }
+.continue textarea:focus { outline: 3px solid var(--focus); outline-offset: 2px; }
+.continue .row { display: flex; justify-content: space-between; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
+.md { overflow-wrap: anywhere; }
+.md h3, .md h4 { margin: 18px 0 6px; font-size: 18px; }
+.md table { border-collapse: collapse; width: 100%; font-size: 15px; display: block; overflow-x: auto; }
+.md th, .md td { border: 1px solid var(--line); padding: 6px 8px; text-align: left; }
+.md pre { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; overflow-x: auto; font-size: 14px; }
+.md code { font-family: Consolas, "D2Coding", monospace; font-size: .92em; }
+.md ul { padding-left: 22px; margin: 6px 0; }
+.md p { margin: 8px 0; }
+.lightbox { position: fixed; inset: 0; z-index: 50; background: rgba(0,0,0,.85); display: none; align-items: center; justify-content: center; padding: 16px; cursor: zoom-out; }
+.lightbox.show { display: flex; }
+.lightbox img { max-width: 100%; max-height: 100%; object-fit: contain; background: #fff; }
+@media (max-width: 640px) {
+  .sheet { padding: 16px 14px 60px; }
+  .seg { width: 100%; }
+  .seg button { flex: 1; }
+}
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>스튜디오</h1>
+    <p>AI가 끝낸 작업과 만든 그림·소리를 모아 봐요. 지난 작업을 골라 이어서 맡길 수 있어요.</p>
+  </header>
+  <div id="notice" class="notice" role="status" aria-live="polite"></div>
+  <div class="toolbar">
+    <input type="search" id="q" placeholder="이슈 번호, 제목, 모델로 찾기" aria-label="작업 찾기" autocomplete="off">
+    <div class="seg" role="group" aria-label="보기">
+      <button type="button" id="viewJobs" aria-pressed="true">작업</button>
+      <button type="button" id="viewMedia" aria-pressed="false">그림·소리</button>
+    </div>
+    <button type="button" id="refresh" class="small-btn">새로 고침</button>
+  </div>
+  <div id="list"><p class="loading">작업 기록을 불러오는 중이에요...</p></div>
+</main>
+
+<div class="sheet-back" id="sheetBack"><div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle" id="sheet"></div></div>
+<div class="lightbox" id="lightbox" role="dialog" aria-label="크게 보기"><img alt="" id="lightImg"></div>
+<div id="toast" role="status" aria-live="assertive"></div>
+<div class="modal-back" id="modalBack"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle" id="modal"></div></div>
+
+<script src="/common.js"></script>
+<script>
+"use strict";
+renderNav("studio");
+let items = [];
+let view = "jobs";
+let platform = "";
+
+const mediaUrl = (id, name) => "/api/archive/media?id=" + encodeURIComponent(id) + "&name=" + encodeURIComponent(name);
+const KIND_ICON = { image: "🖼️", audio: "🎵", video: "🎬" };
+function statusClass(s) { return /완료/.test(s) ? "ok" : /확인/.test(s) ? "warn" : "bad"; }
+function shortModel(m) { return m.split("/").pop(); }
+
+async function load() {
+  const q = $("q").value.trim();
+  try {
+    const r = await api("/api/archive?" + new URLSearchParams({ q, media: view === "media" ? "1" : "0" }));
+    items = r.items;
+    render();
+  } catch (e) { showError(e); }
+}
+
+function render() {
+  const list = $("list");
+  if (!items.length) {
+    list.replaceChildren(h("div", { class: "empty" }, $("q").value.trim()
+      ? "찾는 작업이 없어요."
+      : view === "media"
+        ? "아직 AI가 만든 그림이나 소리가 없어요. 작업 폴더에 이미지·오디오 파일을 만든 작업이 끝나면 여기에 모여요."
+        : "아직 끝난 작업이 없어요. Paperclip에서 Nexus 에이전트에게 일을 맡기면 끝날 때마다 여기에 쌓여요."));
+    return;
+  }
+  if (view === "media") {
+    const tiles = [];
+    for (const it of items) for (const m of it.media) tiles.push(mediaTile(it, m, true));
+    list.replaceChildren(h("div", { class: "media-grid" }, tiles));
+    return;
+  }
+  list.replaceChildren(h("div", { class: "grid" }, items.map(jobCard)));
+}
+
+function jobCard(it) {
+  const img = it.media.find((m) => m.kind === "image");
+  const first = it.media[0];
+  return h("button", { type: "button", class: "job", onclick: () => openJob(it.id), "aria-label": (it.identifier || "") + " " + it.title + " 자세히 보기" },
+    h("div", { class: "thumb" }, img ? h("img", { src: mediaUrl(it.id, img.name), alt: "", loading: "lazy" }) : (first ? KIND_ICON[first.kind] : "📄")),
+    h("div", { class: "job-body" },
+      h("div", { class: "job-top" }, h("span", { class: "ident" }, it.identifier || "이슈"), h("span", { class: "badge " + statusClass(it.status) }, it.status)),
+      h("div", { class: "job-title" }, it.title || "(제목 없음)"),
+      h("div", { class: "job-meta" }, [formatUntil(it.at), it.models.length ? it.models.map(shortModel).slice(0, 2).join(", ") : "", it.media.length ? "그림·소리 " + it.media.length + "개" : ""].filter(Boolean).join(" · "))));
+}
+
+function mediaTile(it, m, withJob) {
+  const url = mediaUrl(it.id, m.name);
+  const el = m.kind === "image"
+    ? h("img", { src: url, alt: m.source, loading: "lazy", onclick: () => zoom(url, m.source) })
+    : m.kind === "audio" ? h("audio", { src: url, controls: true, preload: "none" })
+    : h("video", { src: url, controls: true, preload: "metadata" });
+  return h("div", { class: "tile" },
+    h("div", { class: "view" }, el),
+    h("div", { class: "cap" },
+      h("span", {}, m.source),
+      withJob ? h("a", { href: "#" + it.id, onclick: (e) => { e.preventDefault(); openJob(it.id); } }, it.identifier || "작업") : h("a", { href: url, download: m.name }, "받기")));
+}
+
+function zoom(url, alt) {
+  $("lightImg").src = url;
+  $("lightImg").alt = alt;
+  $("lightbox").classList.add("show");
+}
+$("lightbox").onclick = () => $("lightbox").classList.remove("show");
+
+// ---------- 작업 자세히 ----------
+async function openJob(id) {
+  let data;
+  try { data = await api("/api/archive/item?id=" + encodeURIComponent(id)); } catch (e) { showError(e); return; }
+  const r = data.record;
+  if (location.hash !== "#" + id) history.replaceState(null, "", "#" + id);
+  const text = h("textarea", { id: "contText", placeholder: "예: 배경을 밤 장면으로 바꾸고, 주인공 표정을 더 어둡게 해 줘", "aria-label": "이어서 맡길 내용" });
+  const sendBtn = h("button", { type: "button", class: "primary", onclick: async () => {
+    sendBtn.disabled = true;
+    try {
+      const res = await api("/api/archive/continue", { id, text: text.value });
+      toast(res.message);
+      text.value = "";
+    } catch (e) { toast(e.error, "bad"); }
+    sendBtn.disabled = false;
+  } }, "이어서 맡기기");
+  const sheet = $("sheet");
+  sheet.replaceChildren(...[
+    h("div", { class: "sheet-head" },
+      h("div", {},
+        h("span", { class: "ident" }, r.identifier || "이슈"), " ",
+        h("span", { class: "badge " + statusClass(r.status) }, r.status),
+        h("h2", { id: "sheetTitle" }, r.title || "(제목 없음)")),
+      h("button", { type: "button", class: "small-btn", onclick: closeJob, "aria-label": "닫기" }, "닫기")),
+    h("div", { class: "meta-list" },
+      h("span", {}, formatUntil(r.at)),
+      r.models.length ? h("span", {}, "모델: " + r.models.map(shortModel).join(", ")) : null,
+      r.costUsd ? h("span", {}, "비용 $" + r.costUsd.toFixed(4)) : null),
+    r.media.length ? h("div", {}, h("h3", {}, "만든 그림·소리"), h("div", { class: "media-grid" }, r.media.map((m) => mediaTile(r, m, false)))) : null,
+    h("section", { class: "card continue" },
+      h("h3", { style: "margin:0 0 4px" }, "이어서 맡기기"),
+      h("p", { class: "help" }, "이슈에 댓글로 남기고 다시 열어요. 담당 AI가 이전 결과를 이어서 작업해요."),
+      text,
+      h("div", { class: "row" }, h("span", { class: "small" }, "끝나면 여기에 새 기록이 생겨요."), sendBtn)),
+    h("h3", {}, "결과"),
+    h("div", { class: "md" }, md(data.result)),
+    h("details", {}, h("summary", {}, "원래 요청 보기"), h("div", { class: "md inner" }, md(data.issue))),
+    h("div", { class: "actions" },
+      h("button", { type: "button", class: "small-btn", onclick: async () => {
+        try { toast((await api("/api/archive/open", { id })).message); } catch (e) { toast(e.error, "bad"); }
+      } }, platform === "win32" ? "폴더 열기" : "폴더 위치 보기"),
+      h("button", { type: "button", class: "small-btn danger", onclick: async () => {
+        const ok = await dialog("이 작업 기록을 지울까요?", h("p", {}, "스튜디오에 모은 결과와 그림·소리가 지워져요. Paperclip의 이슈와 작업 폴더의 파일은 그대로 있어요."), [{ text: "그만두기", value: false }, { text: "지우기", value: true, kind: "danger" }]);
+        if (!ok) return;
+        try { toast((await api("/api/archive/remove", { id })).message); closeJob(); load(); } catch (e) { toast(e.error, "bad"); }
+      } }, "기록 지우기")),
+  ].filter(Boolean));
+  $("sheetBack").classList.add("show");
+  sheet.scrollTop = 0;
+  sheet.querySelector("button").focus();
+}
+
+function closeJob() {
+  $("sheetBack").classList.remove("show");
+  if (location.hash) history.replaceState(null, "", location.pathname);
+}
+$("sheetBack").addEventListener("click", (e) => { if (e.target === $("sheetBack")) closeJob(); });
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape") return;
+  if ($("lightbox").classList.contains("show")) $("lightbox").classList.remove("show");
+  else if ($("sheetBack").classList.contains("show") && !$("modalBack").classList.contains("show")) closeJob();
+});
+
+// ---------- 간단한 마크다운 (결과 댓글용) ----------
+function inline(text) {
+  const out = [];
+  const re = /(`[^`]+`|\*\*[^*]+\*\*)/g;
+  let last = 0, m;
+  while ((m = re.exec(text))) {
+    if (m.index > last) out.push(text.slice(last, m.index));
+    out.push(m[0][0] === "`" ? h("code", {}, m[0].slice(1, -1)) : h("strong", {}, m[0].slice(2, -2)));
+    last = re.lastIndex;
+  }
+  if (last < text.length) out.push(text.slice(last));
+  return out;
+}
+function md(src) {
+  const frag = document.createDocumentFragment();
+  const lines = (src || "").split(/\r?\n/);
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line.trim()) continue;
+    if (line.startsWith("```")) {
+      const buf = [];
+      for (i++; i < lines.length && !lines[i].startsWith("```"); i++) buf.push(lines[i]);
+      frag.append(h("pre", {}, h("code", {}, buf.join("\n"))));
+      continue;
+    }
+    const head = line.match(/^(#{1,6})\s+(.*)$/);
+    if (head) { frag.append(h(head[1].length <= 3 ? "h3" : "h4", {}, inline(head[2]))); continue; }
+    if (/^\s*\|/.test(line)) {
+      const rows = [];
+      for (; i < lines.length && /^\s*\|/.test(lines[i]); i++) rows.push(lines[i]);
+      i--;
+      const cells = (r) => r.trim().replace(/^\||\|$/g, "").split("|").map((c) => c.trim());
+      const body = rows.filter((r) => !/^\s*\|[\s:|-]+\|\s*$/.test(r));
+      const [first, ...rest] = body;
+      frag.append(h("table", {}, h("thead", {}, h("tr", {}, cells(first || "").map((c) => h("th", {}, inline(c))))), h("tbody", {}, rest.map((r) => h("tr", {}, cells(r).map((c) => h("td", {}, inline(c))))))));
+      continue;
+    }
+    if (/^\s*[-*]\s+/.test(line)) {
+      const ul = h("ul", {});
+      for (; i < lines.length && /^\s*[-*]\s+/.test(lines[i]); i++) ul.append(h("li", {}, inline(lines[i].replace(/^\s*[-*]\s+/, ""))));
+      i--;
+      frag.append(ul);
+      continue;
+    }
+    frag.append(h("p", {}, inline(line)));
+  }
+  return frag;
+}
+
+// ---------- 시작 ----------
+let searchTimer = null;
+$("q").addEventListener("input", () => { clearTimeout(searchTimer); searchTimer = setTimeout(load, 250); });
+$("refresh").onclick = load;
+for (const [btn, v] of [["viewJobs", "jobs"], ["viewMedia", "media"]]) {
+  $(btn).onclick = () => {
+    view = v;
+    $("viewJobs").setAttribute("aria-pressed", String(v === "jobs"));
+    $("viewMedia").setAttribute("aria-pressed", String(v === "media"));
+    load();
+  };
+}
+fetch("/api/info").then((r) => r.json()).then((i) => { platform = i.platform; }).catch(() => {});
+load().then(() => { const id = location.hash.slice(1); if (id) openJob(id); });
+// 새 작업이 끝나면 저절로 보이게 가끔 다시 읽는다.
+setInterval(() => { if (!document.hidden && !$("sheetBack").classList.contains("show")) load(); }, 30000);
+</script>
+</body>
+</html>

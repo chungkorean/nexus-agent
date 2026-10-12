@@ -8,3 +8,4 @@ export * from "./worktree.ts";
 export * from "./usage.ts";
 export * from "./telegram.ts";
 export * from "./catalog.ts";
+export * from "./archive.ts";

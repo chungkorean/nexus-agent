@@ -1,0 +1,468 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nexus 음성 비서</title>
+<link rel="stylesheet" href="/base.css">
+<style>
+main { max-width: 920px; margin: 0 auto; padding: 24px 16px 80px; }
+header h1 { font-size: 28px; margin: 8px 0 4px; }
+header p { margin: 0 0 16px; color: var(--muted); }
+.talk { text-align: center; padding: 28px 20px; }
+.mic {
+  width: 132px; height: 132px; border-radius: 50%; font-size: 52px; line-height: 1;
+  border: 3px solid var(--accent); background: var(--accent-soft); color: var(--accent);
+  display: inline-flex; align-items: center; justify-content: center; margin: 4px auto 10px;
+}
+.mic.on { background: var(--accent); color: var(--accent-text); box-shadow: 0 0 0 10px var(--accent-soft); }
+.mic.busy { border-style: dashed; }
+.state { font-size: 19px; font-weight: 700; min-height: 30px; }
+.state-sub { color: var(--muted); font-size: 15px; min-height: 24px; }
+.meter { height: 8px; border-radius: 999px; background: var(--line); overflow: hidden; max-width: 320px; margin: 12px auto 0; }
+.meter i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .06s; }
+.wake-row { display: flex; align-items: center; justify-content: center; gap: 12px; margin-top: 18px; text-align: left; }
+.wake-row > div { min-width: 0; }
+.type-row { display: flex; gap: 8px; margin-top: 18px; }
+.type-row input { flex: 1; }
+.log { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 10px; }
+.log li { border-radius: 14px; padding: 10px 14px; max-width: 88%; white-space: pre-wrap; }
+.log li.me { align-self: flex-end; background: var(--accent-soft); }
+.log li.ai { align-self: flex-start; background: var(--card); border: 1px solid var(--line); }
+.log li.err { align-self: flex-start; background: var(--bad-soft); color: var(--bad); }
+.log .who { display: block; font-size: 13px; color: var(--muted); font-weight: 700; margin-bottom: 2px; }
+.log .acts { margin-top: 8px; display: flex; gap: 8px; flex-wrap: wrap; }
+.models-pick { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 10px 0 14px; }
+.choice { position: relative; display: block; border: 1.5px solid var(--line); border-radius: 12px; padding: 12px 14px; cursor: pointer; }
+.choice input { position: absolute; opacity: 0; pointer-events: none; }
+.choice strong { display: block; font-size: 18px; }
+.choice span { display: block; font-size: 14px; color: var(--muted); }
+.choice:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
+.choice:has(input:focus-visible) { outline: 3px solid var(--focus); outline-offset: 2px; }
+.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.field { display: block; margin-bottom: 14px; }
+.field > span { display: block; font-weight: 600; margin-bottom: 4px; }
+.install-log { font-family: Consolas, "D2Coding", monospace; font-size: 14px; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; max-height: 180px; overflow: auto; white-space: pre-wrap; }
+.ready-line { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.badge { display: inline-block; font-size: 15px; font-weight: 700; padding: 3px 12px; border-radius: 999px; white-space: nowrap; }
+.badge.ok { background: var(--ok-soft); color: var(--ok); }
+.badge.warn { background: var(--warn-soft); color: var(--warn); }
+@media (max-width: 640px) {
+  .models-pick, .row2 { grid-template-columns: 1fr; }
+  .log li { max-width: 100%; }
+}
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>음성 비서</h1>
+    <p>말로 일을 맡기고 진행 상황을 들어요. 소리는 이 PC의 Whisper가 글로 바꾸고, 밖으로 보내지 않아요.</p>
+  </header>
+  <div id="notice" class="notice" role="status" aria-live="polite"></div>
+  <div id="setup"></div>
+
+  <section class="card talk" aria-labelledby="talkTitle">
+    <h2 id="talkTitle" class="sr-only" style="position:absolute;left:-9999px">말하기</h2>
+    <button type="button" class="mic" id="mic" aria-label="눌러서 말하기">🎤</button>
+    <div class="state" id="state" aria-live="polite">마이크를 눌러 말해 보세요</div>
+    <div class="state-sub" id="stateSub">"진행 상황 알려 줘" 또는 맡길 일을 그대로 말하면 돼요.</div>
+    <div class="meter" aria-hidden="true"><i id="meter"></i></div>
+    <div class="wake-row">
+      <label class="switch"><input type="checkbox" id="wake" aria-describedby="wakeHelp"><span class="track"></span></label>
+      <div><strong>호출어로 듣기</strong><div class="small" id="wakeHelp">켜 두면 '넥서스'라고 부를 때만 명령으로 들어요.</div></div>
+    </div>
+    <form class="type-row" id="typeForm">
+      <input type="text" id="typed" placeholder="글로 적어도 돼요" aria-label="글로 명령하기" autocomplete="off">
+      <button type="submit" class="small-btn">보내기</button>
+    </form>
+  </section>
+
+  <section class="card" aria-labelledby="logTitle">
+    <h2 id="logTitle">대화</h2>
+    <ul class="log" id="log"><li class="ai"><span class="who">Nexus</span>할 일을 말하면 Paperclip 이슈로 등록하고, "진행 상황 알려 줘"라고 하면 지금 상황을 알려 드려요.</li></ul>
+  </section>
+
+  <section class="card" aria-labelledby="setTitle">
+    <h2 id="setTitle">음성 설정</h2>
+    <div id="settings"><p class="loading">불러오는 중이에요...</p></div>
+  </section>
+</main>
+<div id="toast" role="status" aria-live="assertive"></div>
+<div class="modal-back" id="modalBack"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle" id="modal"></div></div>
+
+<script src="/common.js"></script>
+<script>
+"use strict";
+renderNav("voice");
+let V = null;              // /api/voice
+let pollTimer = null;
+
+// ---------- 준비 상태와 설정 ----------
+async function loadVoice(companyId) {
+  try {
+    V = await api("/api/voice" + (companyId ? "?companyId=" + encodeURIComponent(companyId) : ""));
+    renderSetup();
+    renderSettings();
+    $("wakeHelp").textContent = "켜 두면 '" + V.settings.wakeWord + "'라고 부를 때만 명령으로 들어요.";
+    clearTimeout(pollTimer);
+    if (V.install.running) pollTimer = setTimeout(() => loadVoice(), 2000);
+  } catch (e) { showError(e); }
+}
+
+function renderSetup() {
+  const box = $("setup");
+  const s = V.setup;
+  const inst = V.install;
+  if (s.ready && !inst.running) {
+    box.replaceChildren(h("section", { class: "card" },
+      h("div", { class: "ready-line" },
+        h("span", { class: "badge ok" }, "준비됐어요"),
+        h("span", {}, "Whisper 모델: " + (s.model ? s.model.split(/[\\/]/).pop() : "시험용")),
+        h("span", { class: "badge " + (s.ffmpeg ? "ok" : "warn") }, s.ffmpeg ? "텔레그램 음성 메시지도 받아요" : "텔레그램 음성 메시지는 ffmpeg가 필요해요")),
+      s.ffmpeg ? null : h("p", { class: "help", style: "margin:8px 0 0" }, "텔레그램 음성 메시지도 글로 바꾸려면 PowerShell에서 아래 명령을 실행한 뒤 트레이에서 '모두 다시 시작'을 눌러 주세요.", h("code", { class: "cmd" }, "winget install Gyan.FFmpeg"))));
+    return;
+  }
+  const pick = h("div", { class: "models-pick", role: "radiogroup", "aria-label": "음성 모델" },
+    V.whisperModels.map((m) => h("label", { class: "choice" },
+      h("input", { type: "radio", name: "wm", value: m.id, checked: m.id === "small" }),
+      h("strong", {}, m.label + " · " + m.size), h("span", {}, m.note))));
+  const btn = h("button", { type: "button", class: "primary", disabled: inst.running || V.platform !== "win32", onclick: async () => {
+    const model = pick.querySelector("input:checked").value;
+    try { toast((await api("/api/voice/install", { model })).message); loadVoice(); } catch (e) { showError(e); }
+  } }, inst.running ? "설치하는 중..." : "Whisper 설치");
+  box.replaceChildren(h("section", { class: "card" },
+    h("h2", {}, "먼저 Whisper를 설치해요"),
+    h("p", { class: "help" }, "말을 글로 바꾸는 프로그램(whisper.cpp)과 음성 모델을 이 PC에 내려받아요. 한 번만 하면 돼요."),
+    pick,
+    V.platform === "win32" ? null : h("p", { class: "help" }, "자동 설치는 Windows에서만 돼요. 아래 '음성 설정 > 직접 지정'에 whisper-cli와 모델 경로를 적어 주세요."),
+    btn,
+    inst.log.length ? h("div", { class: "install-log", style: "margin-top:12px", "aria-live": "polite" }, inst.log.join("\n")) : null,
+    inst.error ? h("div", { class: "notice bad" }, inst.error) : null));
+}
+
+function renderSettings() {
+  const s = V.settings;
+  const wake = h("input", { type: "text", value: s.wakeWord, maxlength: "20", "aria-describedby": "wwHelp" });
+  const lang = h("select", {}, [["ko", "한국어"], ["en", "영어"], ["ja", "일본어"], ["zh", "중국어"], ["auto", "자동"]].map(([v, t]) => h("option", { value: v, selected: v === s.language }, t)));
+  const speak = h("input", { type: "checkbox", checked: s.speak });
+  const company = h("select", { onchange: () => loadVoice(company.value) },
+    h("option", { value: "" }, "텔레그램 설정과 같게"),
+    V.companies.map((c) => h("option", { value: c.id, selected: c.id === s.companyId }, c.name)));
+  const agent = h("select", { disabled: !company.value },
+    h("option", { value: "" }, "골라 주세요"),
+    V.agents.map((a) => h("option", { value: a.id, selected: a.id === s.agentId }, a.name + (a.adapterType === "nexus_dispatch" ? " (Nexus)" : ""))));
+  const modelSel = h("select", {},
+    h("option", { value: "" }, "자동 (가장 정확한 것)"),
+    V.setup.models.map((m) => h("option", { value: m.path, selected: m.path === s.modelPath }, m.name)));
+  const whisperPath = h("input", { type: "text", value: s.whisperPath || "", placeholder: V.setup.whisper || "C:\\whisper\\whisper-cli.exe" });
+  const ffmpegPath = h("input", { type: "text", value: s.ffmpegPath || "", placeholder: V.setup.ffmpeg || "C:\\ffmpeg\\bin\\ffmpeg.exe" });
+  const save = h("button", { type: "button", class: "primary", onclick: async () => {
+    save.disabled = true;
+    try {
+      const r = await api("/api/voice/settings", {
+        wakeWord: wake.value, language: lang.value, speak: speak.checked,
+        companyId: company.value, agentId: agent.value,
+        modelPath: modelSel.value, whisperPath: whisperPath.value, ffmpegPath: ffmpegPath.value,
+      });
+      toast(r.message);
+      await loadVoice();
+    } catch (e) { toast(e.error, "bad"); }
+    save.disabled = false;
+  } }, "저장");
+  $("settings").replaceChildren(...[
+    h("div", { class: "row2" },
+      h("label", { class: "field" }, h("span", {}, "호출어"), wake, h("div", { class: "small", id: "wwHelp" }, "이 말로 부르면 듣기 시작해요. 짧고 흔하지 않은 말이 좋아요.")),
+      h("label", { class: "field" }, h("span", {}, "말하는 언어"), lang)),
+    h("div", { class: "toggle-row" },
+      h("div", {}, h("strong", {}, "답을 소리로 읽어 주기"), h("span", { class: "small" }, "Windows에 들어 있는 한국어 음성으로 읽어요.")),
+      h("label", { class: "switch" }, speak, h("span", { class: "track" }))),
+    h("h3", { class: "subhead" }, "일 맡길 곳"),
+    V.paperclipError ? h("div", { class: "notice bad" }, V.paperclipError) : null,
+    h("div", { class: "row2" },
+      h("label", { class: "field" }, h("span", {}, "Paperclip 회사"), company),
+      h("label", { class: "field" }, h("span", {}, "맡길 에이전트"), agent)),
+    h("details", {}, h("summary", {}, "직접 지정 (고급)"),
+      h("div", { class: "inner" },
+        h("label", { class: "field" }, h("span", {}, "음성 모델"), modelSel),
+        h("label", { class: "field" }, h("span", {}, "whisper-cli 경로"), whisperPath),
+        h("label", { class: "field" }, h("span", {}, "ffmpeg 경로"), ffmpegPath),
+        h("p", { class: "small" }, "설치 폴더: " + V.setup.dir))),
+    h("div", { style: "display:flex;justify-content:flex-end;margin-top:10px" }, save)].filter(Boolean));
+}
+
+// ---------- 대화 기록 ----------
+function addLog(kind, text, extra) {
+  const li = h("li", { class: kind }, h("span", { class: "who" }, kind === "me" ? "나" : "Nexus"), text, extra || null);
+  $("log").append(li);
+  li.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  return li;
+}
+
+function speak(text) {
+  return new Promise((resolve) => {
+    if (!V || !V.settings.speak || !window.speechSynthesis || !text) return resolve();
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = V.settings.language === "auto" ? "ko-KR" : ({ ko: "ko-KR", en: "en-US", ja: "ja-JP", zh: "zh-CN" })[V.settings.language];
+    const voice = speechSynthesis.getVoices().find((v) => v.lang && v.lang.replace("_", "-").startsWith(u.lang.slice(0, 2)));
+    if (voice) u.voice = voice;
+    u.onend = u.onerror = () => resolve();
+    speechSynthesis.cancel();
+    speechSynthesis.speak(u);
+  });
+}
+
+async function command(text) {
+  addLog("me", text);
+  setState("처리하는 중...", "");
+  try {
+    const { reply } = await api("/api/voice/command", { text });
+    let extra = null;
+    if (reply.issue) {
+      const undo = h("button", { type: "button", class: "small-btn danger", onclick: async () => {
+        undo.disabled = true;
+        try { toast((await api("/api/voice/cancel", { issueId: reply.issue.id })).message); undo.textContent = "취소했어요"; } catch (e) { toast(e.error, "bad"); undo.disabled = false; }
+      } }, "잘못 들었어요, 취소");
+      extra = h("div", { class: "acts" }, undo);
+    }
+    addLog("ai", reply.text, extra);
+    await speak(reply.speech);
+  } catch (e) {
+    addLog("err", e.error || String(e));
+    await speak(e.error || "");
+  }
+}
+
+// ---------- 마이크 ----------
+const FRAME_SEC = 0.02;
+let ctx = null, stream = null, workNode = null;
+let mode = "off";          // off | wake | ptt
+let busy = false;          // 알아듣거나 답하는 동안은 새 말을 받지 않는다
+let noise = 0.005;
+let seg = null;            // 지금 모으는 말 { frames, silence, heard, started }
+let pre = [];              // 말 시작 직전 소리
+let loud = 0;
+let awaitUntil = 0;        // 호출어만 듣고 명령을 기다리는 시각
+
+function setState(main, sub) {
+  $("state").textContent = main;
+  if (sub !== undefined) $("stateSub").textContent = sub;
+}
+function idleState() {
+  if (mode === "wake") setState("'" + V.settings.wakeWord + "'라고 불러 주세요", "호출어 뒤에 바로 명령을 말해도 돼요.");
+  else setState("마이크를 눌러 말해 보세요", "\"진행 상황 알려 줘\" 또는 맡길 일을 그대로 말하면 돼요.");
+}
+
+async function ensureMic() {
+  if (ctx) { if (ctx.state === "suspended") await ctx.resume(); return; }
+  stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } });
+  ctx = new AudioContext();
+  await ctx.audioWorklet.addModule("/voice-worklet.js");
+  const src = ctx.createMediaStreamSource(stream);
+  workNode = new AudioWorkletNode(ctx, "nexus-capture");
+  const mute = ctx.createGain();
+  mute.gain.value = 0;
+  src.connect(workNode).connect(mute).connect(ctx.destination);
+  workNode.port.onmessage = (e) => onFrame(e.data);
+}
+
+function stopMic() {
+  if (stream) stream.getTracks().forEach((t) => t.stop());
+  if (ctx) ctx.close();
+  ctx = stream = workNode = null;
+  seg = null;
+  $("meter").style.width = "0";
+}
+
+function onFrame(f) {
+  let sum = 0;
+  for (let i = 0; i < f.length; i++) sum += f[i] * f[i];
+  const rms = Math.sqrt(sum / f.length);
+  $("meter").style.width = Math.min(100, rms * 900) + "%";
+  if (mode === "off" || busy) return;
+  const thr = Math.max(0.012, noise * 3);
+  const speech = rms > thr;
+  if (!speech && !seg) noise = noise * 0.97 + rms * 0.03;
+
+  if (mode === "ptt") {
+    if (!seg) return;
+    seg.frames.push(f);
+    if (speech) { seg.heard++; seg.silence = 0; } else seg.silence++;
+    const secs = seg.frames.length * FRAME_SEC;
+    if (seg.heard > 5 && seg.silence * FRAME_SEC > 1.2) return finishSegment();
+    if (secs > 15) return finishSegment();
+    if (!seg.heard && secs > 6) { seg = null; setPtt(false); setState("아무 말도 못 들었어요", "다시 눌러 말해 주세요."); }
+    return;
+  }
+
+  // 호출어 모드: 말소리가 나오면 모으고, 0.7초 조용하면 끊는다.
+  if (!seg) {
+    pre.push(f);
+    if (pre.length > 15) pre.shift();
+    loud = speech ? loud + 1 : 0;
+    if (loud >= 3) { seg = { frames: pre.slice(), silence: 0, heard: loud }; pre = []; }
+    else if (awaitUntil && Date.now() > awaitUntil) { awaitUntil = 0; idleState(); }
+    return;
+  }
+  seg.frames.push(f);
+  if (speech) { seg.heard++; seg.silence = 0; } else seg.silence++;
+  if (seg.silence * FRAME_SEC > 0.7 || seg.frames.length * FRAME_SEC > 15) finishSegment();
+}
+
+async function finishSegment() {
+  const s = seg;
+  seg = null;
+  loud = 0;
+  if (mode === "ptt") setPtt(false);
+  if (!s || s.frames.length * FRAME_SEC < 0.5) return;
+  busy = true;
+  $("mic").classList.add("busy");
+  setState("알아듣는 중...", "");
+  try {
+    const text = await transcribe(s.frames);
+    await handleHeard(text);
+  } catch (e) {
+    addLog("err", e.error || String(e));
+  } finally {
+    busy = false;
+    $("mic").classList.remove("busy");
+    if (!awaitUntil) idleState();
+  }
+}
+
+async function handleHeard(text) {
+  if (!text) { if (mode !== "wake") setState("알아듣지 못했어요", "조금 더 크게 다시 말해 주세요."); return; }
+  if (mode !== "wake") { const rest = stripWake(text); return command(rest === null ? text : rest || text); }
+  if (awaitUntil && Date.now() < awaitUntil) { awaitUntil = 0; const rest = stripWake(text); return command(rest === null ? text : rest); }
+  const rest = stripWake(text);
+  if (rest === null) return;           // 호출어가 아니면 흘려듣는다
+  if (rest) return command(rest);
+  awaitUntil = Date.now() + 8000;
+  beep();
+  setState("말씀하세요", "8초 안에 명령을 말해 주세요.");
+}
+
+async function transcribe(frames) {
+  const res = await fetch("/api/voice/transcribe", { method: "POST", headers: { "Content-Type": "audio/wav", "X-Nexus": "1" }, body: toWav(frames, ctx.sampleRate) });
+  let data = {};
+  try { data = await res.json(); } catch (e) { /* 빈 응답 */ }
+  if (!res.ok || data.ok === false) throw { error: data.error || "말을 글로 바꾸지 못했어요." };
+  return data.text || "";
+}
+
+// 16kHz 모노 16비트 WAV로 바꾼다.
+function toWav(frames, rate) {
+  const total = frames.reduce((n, f) => n + f.length, 0);
+  const all = new Float32Array(total);
+  let o = 0;
+  for (const f of frames) { all.set(f, o); o += f.length; }
+  const ratio = rate / 16000;
+  const n = Math.floor(total / ratio);
+  const buf = new ArrayBuffer(44 + n * 2);
+  const v = new DataView(buf);
+  const w = (p, s) => { for (let i = 0; i < s.length; i++) v.setUint8(p + i, s.charCodeAt(i)); };
+  w(0, "RIFF"); v.setUint32(4, 36 + n * 2, true); w(8, "WAVE"); w(12, "fmt ");
+  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, 16000, true); v.setUint32(28, 32000, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+  w(36, "data"); v.setUint32(40, n * 2, true);
+  for (let i = 0; i < n; i++) {
+    const a = Math.floor(i * ratio), b = Math.min(total, Math.floor((i + 1) * ratio));
+    let s = 0;
+    for (let j = a; j < b; j++) s += all[j];
+    const x = Math.max(-1, Math.min(1, s / Math.max(1, b - a)));
+    v.setInt16(44 + i * 2, x < 0 ? x * 0x8000 : x * 0x7fff, true);
+  }
+  return new Blob([buf], { type: "audio/wav" });
+}
+
+function beep() {
+  if (!ctx) return;
+  const o = ctx.createOscillator(), g = ctx.createGain();
+  o.frequency.value = 880;
+  g.gain.setValueAtTime(0.15, ctx.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.25);
+  o.connect(g).connect(ctx.destination);
+  o.start();
+  o.stop(ctx.currentTime + 0.25);
+}
+
+// ---------- 호출어 ----------
+const NEXUS_VARIANTS = ["넥서스", "넥써스", "넥서즈", "넥스서스", "넥서쓰", "넥스", "nexus", "nexsus"];
+const norm = (s) => s.toLowerCase().replace(/[\s.,!?~"'`·…]/g, "");
+function wakeVariants() {
+  const w = norm(V.settings.wakeWord);
+  return w === "넥서스" ? NEXUS_VARIANTS : [w];
+}
+function near(a, b) {
+  if (a === b) return true;
+  if (Math.abs(a.length - b.length) > 1 || b.length < 3) return false;
+  const d = Array.from({ length: a.length + 1 }, (_, i) => [i]);
+  for (let j = 1; j <= b.length; j++) d[0][j] = j;
+  for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++) d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+  return d[a.length][b.length] <= 1;
+}
+/** 호출어로 시작하면 나머지 말을, 아니면 null을 돌려준다. */
+function stripWake(text) {
+  const n = norm(text);
+  for (const w of wakeVariants()) {
+    for (const len of [w.length, w.length + 1, w.length - 1]) {
+      if (len < 2 || !near(n.slice(0, len), w)) continue;
+      let seen = 0, i = 0;
+      while (i < text.length && seen < len) { if (norm(text[i])) seen++; i++; }
+      return text.slice(i).replace(/^(야|아|님)?[\s,.!?~]*/, "").trim();
+    }
+  }
+  return null;
+}
+
+// ---------- 버튼 ----------
+function setPtt(on) {
+  $("mic").classList.toggle("on", on || mode === "wake");
+  $("mic").setAttribute("aria-pressed", String(on));
+}
+
+$("mic").onclick = async () => {
+  if (!V || !V.setup.ready) { toast("먼저 Whisper를 설치해 주세요.", "bad"); return; }
+  if (busy) return;
+  try { await ensureMic(); } catch (e) { showError({ error: "마이크를 쓸 수 없어요. 브라우저 주소창의 마이크 권한을 허용해 주세요. (" + e.message + ")" }); return; }
+  if (mode === "ptt" && seg) { finishSegment(); return; }
+  if (mode === "wake") { awaitUntil = Date.now() + 8000; beep(); setState("말씀하세요", "8초 안에 명령을 말해 주세요."); return; }
+  mode = "ptt";
+  seg = { frames: [], silence: 0, heard: 0 };
+  setPtt(true);
+  setState("듣고 있어요", "다 말하면 잠시 멈추거나 마이크를 다시 눌러 주세요.");
+};
+
+$("wake").onchange = async () => {
+  if ($("wake").checked) {
+    if (!V || !V.setup.ready) { $("wake").checked = false; toast("먼저 Whisper를 설치해 주세요.", "bad"); return; }
+    try { await ensureMic(); } catch (e) { $("wake").checked = false; showError({ error: "마이크를 쓸 수 없어요. 마이크 권한을 허용해 주세요." }); return; }
+    mode = "wake";
+    seg = null;
+    try { localStorage.setItem("nexus-wake", "1"); } catch (e) { /* 저장 못 해도 된다 */ }
+  } else {
+    mode = "off";
+    stopMic();
+    try { localStorage.removeItem("nexus-wake"); } catch (e) { /* 저장 못 해도 된다 */ }
+  }
+  setPtt(false);
+  idleState();
+};
+
+$("typeForm").onsubmit = (e) => {
+  e.preventDefault();
+  const t = $("typed").value.trim();
+  if (!t) return;
+  $("typed").value = "";
+  command(t).then(idleState);
+};
+
+if (window.speechSynthesis) speechSynthesis.onvoiceschanged = () => {};
+loadVoice().then(() => {
+  let want = false;
+  try { want = localStorage.getItem("nexus-wake") === "1"; } catch (e) { /* 없음 */ }
+  if (want && V && V.setup.ready) { $("wake").checked = true; $("wake").onchange(); }
+});
+</script>
+</body>
+</html>

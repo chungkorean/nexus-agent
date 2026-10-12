@@ -2,8 +2,9 @@
 // 테스트용 가짜 claude CLI. `claude -p --output-format json ...`를 흉내 낸다.
 // FAKE_CLAUDE_MODE=ok|quota|auth, FAKE_CLAUDE_LOG=받은 호출을 기록할 파일
 // FAKE_CLAUDE_PLAN=작업 분해 요청에 돌려줄 JSON, FAKE_CLAUDE_DELAY_MS=작업마다 기다릴 시간
+// FAKE_CLAUDE_MEDIA=작업 폴더에 함께 만들 그림 파일 경로
 // FAKE_CLAUDE_QUOTA_DIRS=한도에 걸린 것처럼 굴 CLAUDE_CONFIG_DIR 목록(쉼표)
-import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 const args = process.argv.slice(2);
@@ -49,6 +50,11 @@ if (stdin.includes("## Nexus 전체 변경 검토 요청")) reply(`판정: ${pro
 const key = stdin.match(/하위 작업 키: (\S+)/)?.[1];
 const out = process.env.FAKE_SHARED_FILE && key ? process.env.FAKE_SHARED_FILE : key ? `${key}.txt` : "claude-output.txt";
 if (!args.includes("--disallowedTools") && !stdin.includes("## Nexus 병합 충돌 해결 요청")) writeFileSync(path.join(process.cwd(), out), `made by fake claude ${model}${key ? ` for ${key}` : ""}\n`);
+if (process.env.FAKE_CLAUDE_MEDIA && !args.includes("--disallowedTools")) {
+  const media = path.join(process.cwd(), process.env.FAKE_CLAUDE_MEDIA);
+  mkdirSync(path.dirname(media), { recursive: true });
+  writeFileSync(media, Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]));
+}
 console.log(
   JSON.stringify({
     type: "result",
