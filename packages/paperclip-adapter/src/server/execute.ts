@@ -9,7 +9,7 @@ import { ADAPTER_TYPE, bundledConfigDir, readSettings, withResultPolicy, type Di
 import { checkLines, crossReview, type Review } from "./aggregate.ts";
 import { makePlan, runPlanned } from "./planned.ts";
 import { runTests, type TestRun } from "./verify.ts";
-import { finishIssue, firstLine, outcomeLines, routeLine, runRoutes, safeComment, sumUsage, type Attempt } from "./run.ts";
+import { finishIssue, firstLine, outcomeLines, routeLine, runRoutes, safeComment, safeStatus, sumUsage, type Attempt } from "./run.ts";
 
 /** 테스트에서 가짜 실행기·클라이언트로 바꿔 끼울 수 있게 의존성을 모아 둔다. */
 export interface DispatchDeps {
@@ -30,6 +30,27 @@ export const defaultDeps: DispatchDeps = {
 };
 
 export async function executeDispatch(ctx: AdapterExecutionContext, deps: DispatchDeps = defaultDeps): Promise<AdapterExecutionResult> {
+  try {
+    return await dispatch(ctx, deps);
+  } catch (err) {
+    // 예상하지 못한 오류도 이슈에 남겨서, 사람이 보고 다시 요청할 수 있게 한다.
+    const message = `Nexus 실행 중 예상하지 못한 오류가 났어요: ${(err as Error).message}`;
+    await ctx.onLog("stderr", `[nexus] ${message}\n`);
+    const taskId = typeof ctx.context.taskId === "string" ? ctx.context.taskId : null;
+    if (taskId && !ctx.signal?.aborted) {
+      try {
+        const client = deps.client(ctx);
+        await safeComment(client, taskId, `### Nexus 실행 결과: 실패\n\n${message}\n\n다시 실행하려면 이슈에 댓글로 요청을 남겨 주세요.`);
+        await safeStatus(client, taskId, "blocked", (line) => ctx.onLog("stderr", `[nexus] ${line}\n`));
+      } catch {
+        /* 보고까지 실패하면 아래 결과로만 알린다 */
+      }
+    }
+    return failed(message, "unexpected_error");
+  }
+}
+
+async function dispatch(ctx: AdapterExecutionContext, deps: DispatchDeps): Promise<AdapterExecutionResult> {
   const log = (line: string) => ctx.onLog("stdout", `[nexus] ${line}\n`);
   let settings = readSettings(ctx.config, ctx.context);
   const taskId = typeof ctx.context.taskId === "string" ? ctx.context.taskId : null;

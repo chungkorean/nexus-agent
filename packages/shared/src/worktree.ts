@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import path from "node:path";
 import { EXCLUDE_GENERATED } from "./git.ts";
 import { runProcess } from "./process.ts";
@@ -66,7 +66,7 @@ export interface Worktree {
 /** base 커밋에서 새 브랜치로 worktree를 만든다. */
 export async function addWorktree(repo: string, dir: string, branch: string, base: string): Promise<Worktree> {
   mkdirSync(path.dirname(dir), { recursive: true });
-  rmSync(dir, { recursive: true, force: true });
+  if (!removeDir(dir)) throw new GitError(`이전 작업 폴더를 지우지 못했어요: ${dir}`);
   await git(repo, ["worktree", "add", "-b", branch, dir, base]);
   return { repo, dir, branch, base };
 }
@@ -94,10 +94,29 @@ export async function commitAll(wt: Worktree, message: string): Promise<string |
   return git(wt.dir, ["rev-parse", "HEAD"]);
 }
 
-/** worktree 폴더만 지우고 브랜치는 남긴다. */
-export async function removeWorktree(wt: Worktree): Promise<void> {
-  await git(wt.repo, ["worktree", "remove", "--force", wt.dir]).catch(() => rmSync(wt.dir, { recursive: true, force: true }));
+/**
+ * worktree 폴더만 지우고 브랜치는 남긴다. 실패해도 예외를 던지지 않는다.
+ * Windows는 백신이나 막 끝난 프로세스가 파일을 잡고 있으면 EPERM이 나므로 몇 번 다시 시도한다.
+ * 끝내 못 지우면 폴더를 남겨 두고 false를 돌려준다(브랜치와 커밋은 이미 저장돼 있다).
+ */
+export async function removeWorktree(wt: Worktree): Promise<boolean> {
+  let removed = await git(wt.repo, ["worktree", "remove", "--force", wt.dir]).then(
+    () => true,
+    () => false,
+  );
+  if (!removed) removed = removeDir(wt.dir);
   await git(wt.repo, ["worktree", "prune"]).catch(() => undefined);
+  return removed;
+}
+
+/** 폴더를 지운다. 잠긴 파일 때문에 실패하면 잠시 기다렸다 다시 시도하고, 끝내 실패하면 false */
+export function removeDir(dir: string): boolean {
+  try {
+    rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
+    return true;
+  } catch {
+    return !existsSync(dir);
+  }
 }
 
 export type WorkdirMergeResult = { ok: true; branch: string; head: string } | { ok: false; reason: string };

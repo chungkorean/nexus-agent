@@ -7,7 +7,6 @@ import {
   commitAll,
   mergeInto,
   mergeIntoWorkdir,
-  removeWorktree,
   repoInfo,
   safeRef,
   uniqueBranch,
@@ -26,7 +25,7 @@ import type { AdapterExecutionContext, AdapterExecutionResult } from "../adapter
 import { ADAPTER_TYPE, type DispatchSettings } from "../settings.ts";
 import { aggregate, checkLines, type AggregateResult } from "./aggregate.ts";
 import { githubLines, publishToGithub, type GithubResult } from "./github.ts";
-import { serialGit } from "./gitqueue.ts";
+import { cleanupWorktree, serialGit } from "./gitqueue.ts";
 import { finishIssue, firstLine, outcomeLines, routeLine, runRoutes, safeComment, safeStatus, sumUsage, type Attempt, type Log } from "./run.ts";
 
 export interface PlannedEnv {
@@ -286,7 +285,7 @@ async function runSubtask(
   } catch (err) {
     return finish({ ok: false, error: (err as Error).message, attempts: run.attempts });
   } finally {
-    if (wt) await serialGit(() => removeWorktree(wt!));
+    if (wt) await cleanupWorktree(wt, slog);
   }
 }
 

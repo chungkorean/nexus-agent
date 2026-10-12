@@ -52,6 +52,31 @@ export function startProcess(cmd: CommandSpec, args: string[], opts: Omit<SpawnO
   });
 }
 
+/**
+ * 프로세스 트리를 끝내고 실제로 끝날 때까지 기다린다(최대 waitMs).
+ * Windows는 실행 중인 프로세스의 작업 폴더를 지울 수 없어서, 폴더 정리 전에 꼭 기다려야 한다.
+ */
+export async function stopTree(child: ChildProcess, waitMs = 10_000): Promise<void> {
+  if (child.pid === undefined || child.exitCode !== null || child.signalCode !== null) return;
+  const exited = new Promise<void>((resolve) => child.once("exit", () => resolve()));
+  let killer: Promise<void> = Promise.resolve();
+  if (process.platform === "win32") {
+    killer = new Promise<void>((resolve) => {
+      const tk = nodeSpawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { windowsHide: true, stdio: "ignore" });
+      tk.once("close", () => resolve());
+      tk.once("error", () => resolve());
+    });
+  } else {
+    killTree(child);
+  }
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, waitMs);
+  });
+  await Promise.race([Promise.all([exited, killer]), timeout]);
+  if (timer) clearTimeout(timer);
+}
+
 export function killTree(child: ChildProcess): void {
   if (child.pid === undefined || child.exitCode !== null) return;
   if (process.platform === "win32") {

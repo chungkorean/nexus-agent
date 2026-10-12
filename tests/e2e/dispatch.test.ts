@@ -189,6 +189,21 @@ describe("nexus_dispatch 어댑터", () => {
     expect(paperclip.issues.get("NEX-1")!.status).toBe("blocked");
   });
 
+  it("예상하지 못한 오류가 나도 이슈에 알리고 막힘으로 표시한다", async () => {
+    paperclip.issues.set("NEX-1", { id: "NEX-1", title: "검색 기능 구현", companyId: "co-1" });
+    const broken: DispatchDeps = {
+      ...deps,
+      accountState: () => {
+        throw new Error("EPERM: operation not permitted");
+      },
+    };
+    const result = await executeDispatch(ctx(), broken);
+    expect(result.exitCode).toBe(1);
+    expect(result.errorCode).toBe("unexpected_error");
+    expect(paperclip.comments.at(-1)!.body).toContain("EPERM");
+    expect(paperclip.issues.get("NEX-1")!.status).toBe("blocked");
+  });
+
   it("설정 화면(routing.yaml)의 결과 처리 값을 쓰고, 에이전트 설정에 값이 있으면 그것이 우선한다", async () => {
     const policy = { autoMerge: false, markDoneOnSuccess: false };
     const base = readSettings({});

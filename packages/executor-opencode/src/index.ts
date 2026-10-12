@@ -5,6 +5,7 @@ import {
   diffSnapshots,
   gitSnapshot,
   killTree,
+  stopTree,
   startProcess,
   type ChangedFile,
   type CommandSpec,
@@ -115,7 +116,7 @@ export class OpenCodeExecutor implements Executor {
     } catch (err) {
       return { ...fail(req.model, `OpenCode 호출 실패: ${(err as Error).message}`, "provider_unavailable", providerID), sessionId };
     } finally {
-      killTree(server.child);
+      await stopTree(server.child);
     }
   }
 

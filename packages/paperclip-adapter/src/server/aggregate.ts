@@ -9,14 +9,13 @@ import {
   filesWithConflictMarkers,
   headOf,
   mergeKeepConflicts,
-  removeWorktree,
   safeRef,
   uniqueBranch,
   type Plan,
   type Route,
   type Worktree,
 } from "@nexus/shared";
-import { serialGit } from "./gitqueue.ts";
+import { cleanupWorktree, serialGit } from "./gitqueue.ts";
 import type { PlannedEnv } from "./planned.ts";
 import { runRoutes, type Attempt } from "./run.ts";
 import { runTests, type TestRun } from "./verify.ts";
@@ -146,7 +145,7 @@ export async function aggregate(
     return result;
   } finally {
     if (link) unlinkDir(link);
-    if (wt) await serialGit(() => removeWorktree(wt!));
+    if (wt) await cleanupWorktree(wt, log);
   }
 }
 
