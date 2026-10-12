@@ -9,7 +9,7 @@ import { ADAPTER_TYPE, bundledConfigDir, readSettings, withResultPolicy, type Di
 import { checkLines, crossReview, type Review } from "./aggregate.ts";
 import { makePlan, runPlanned } from "./planned.ts";
 import { runTests, type TestRun } from "./verify.ts";
-import { finishIssue, firstLine, outcomeLines, routeLine, runRoutes, safeComment, safeStatus, sumUsage, type Attempt } from "./run.ts";
+import { finishIssue, firstLine, outcomeLines, routeLine, postResult, runRoutes, safeComment, safeStatus, sumUsage, type Attempt } from "./run.ts";
 
 /** 테스트에서 가짜 실행기·클라이언트로 바꿔 끼울 수 있게 의존성을 모아 둔다. */
 export interface DispatchDeps {
@@ -40,7 +40,9 @@ export async function executeDispatch(ctx: AdapterExecutionContext, deps: Dispat
     if (taskId && !ctx.signal?.aborted) {
       try {
         const client = deps.client(ctx);
-        await safeComment(client, taskId, `### Nexus 실행 결과: 실패\n\n${message}\n\n다시 실행하려면 이슈에 댓글로 요청을 남겨 주세요.`);
+        const body = `### Nexus 실행 결과: 실패\n\n${message}\n\n다시 실행하려면 이슈에 댓글로 요청을 남겨 주세요.`;
+        const issue = await client.getIssue(taskId).catch(() => ({ id: taskId, title: "" }) as PaperclipIssue);
+        await postResult(client, issue, readSettings(ctx.config, ctx.context).stateDir, body);
         await safeStatus(client, taskId, "blocked", (line) => ctx.onLog("stderr", `[nexus] ${line}\n`));
       } catch {
         /* 보고까지 실패하면 아래 결과로만 알린다 */
@@ -108,7 +110,7 @@ async function dispatch(ctx: AdapterExecutionContext, deps: DispatchDeps): Promi
   // 2. 실행 작업: 작업 폴더를 확인하고 엔진·모델을 골라 실행한다.
   if (!settings.cwd || !existsSync(settings.cwd) || !statSync(settings.cwd).isDirectory()) {
     const message = settings.cwd ? `작업 폴더가 없어요: ${settings.cwd}` : "에이전트 설정에 작업 폴더(cwd)가 없어요.";
-    await safeComment(client, issue.id, `Nexus가 작업을 시작하지 못했어요. ${message}`);
+    await postResult(client, issue, settings.stateDir, `### Nexus가 작업을 시작하지 못했어요\n\n${message}`, log);
     return failed(message, "cwd_missing");
   }
 
@@ -138,7 +140,7 @@ async function dispatch(ctx: AdapterExecutionContext, deps: DispatchDeps): Promi
   const routes = planRoutes(classification, config, { isCoolingDown: (id) => state.isUnavailable(id) });
   if (!routes.length) {
     const message = `${classification.taskType} 작업에 쓸 모델이 설정에 없거나, 계정이 모두 한도로 쉬는 중이거나 이번 달 예산을 다 썼어요.`;
-    await safeComment(client, issue.id, `Nexus가 작업을 시작하지 못했어요. ${message}`);
+    await postResult(client, issue, settings.stateDir, `### Nexus가 작업을 시작하지 못했어요\n\n${message}`, log);
     return failed(message, "no_route");
   }
 
@@ -162,7 +164,7 @@ async function dispatch(ctx: AdapterExecutionContext, deps: DispatchDeps): Promi
   );
   if (!attempts.length) {
     const message = "쓸 수 있는 계정이 모두 한도로 쉬는 중이거나 이번 달 예산을 다 썼어요.";
-    await safeComment(client, issue.id, `Nexus가 작업을 시작하지 못했어요. ${message}`);
+    await postResult(client, issue, settings.stateDir, `### Nexus가 작업을 시작하지 못했어요\n\n${message}`, log);
     return failed(message, "no_route");
   }
 
@@ -190,7 +192,7 @@ async function dispatch(ctx: AdapterExecutionContext, deps: DispatchDeps): Promi
   }
   const reviewAttempts = checks?.review?.attempts ?? [];
   const passed = last.outcome.ok && checks?.tests?.status !== "failed";
-  await safeComment(client, issue.id, reportComment(classification, attempts, checks));
+  await postResult(client, issue, settings.stateDir, reportComment(classification, attempts, checks), log);
   await finishIssue(client, issue.id, passed, { markDoneOnSuccess: settings.markDoneOnSuccess, signal: ctx.signal }, log);
 
   const all = [...planAttempts, ...attempts, ...reviewAttempts];

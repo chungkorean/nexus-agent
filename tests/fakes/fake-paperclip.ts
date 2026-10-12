@@ -12,7 +12,7 @@ export interface RecordedRequest {
 /** 이슈 조회, 댓글, 상태 변경, 하위 이슈 생성만 흉내 내는 가짜 Paperclip API */
 export class FakePaperclip {
   readonly issues = new Map<string, PaperclipIssue>();
-  readonly comments: Array<{ issueId: string; body: string; authorType?: "agent" | "user" }> = [];
+  readonly comments: Array<{ issueId: string; body: string; authorType?: "agent" | "user"; reopen?: boolean }> = [];
   readonly created: Array<{ companyId: string; input: Record<string, unknown> }> = [];
   readonly requests: RecordedRequest[] = [];
   private server?: Server;
@@ -51,9 +51,13 @@ export class FakePaperclip {
         return send(200, list);
       }
       if (m && req.method === "POST") {
-        this.comments.push({ issueId: decodeURIComponent(m[1]!), body: (body as { body: string }).body });
+        const b = body as { body: string; reopen?: boolean };
+        this.comments.push({ issueId: decodeURIComponent(m[1]!), body: b.body, ...(b.reopen ? { reopen: true } : {}) });
         return send(201, { id: `c${this.comments.length}` });
       }
+      if (path === "/api/companies" && req.method === "GET") return send(200, [{ id: "co-1", name: "내 회사" }]);
+      m = path.match(/^\/api\/companies\/([^/]+)\/agents$/);
+      if (m && req.method === "GET") return send(200, [{ id: "agent-dev", name: "개발 부서", adapterType: "nexus_dispatch" }, { id: "agent-hermes", name: "비서", adapterType: "hermes_local" }]);
       m = path.match(/^\/api\/companies\/([^/]+)\/issues$/);
       if (m && req.method === "POST") {
         const id = `iss-child-${this.created.length + 1}`;

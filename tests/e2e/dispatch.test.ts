@@ -4,12 +4,13 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { PaperclipClient } from "@nexus/paperclip-client";
-import { appendUsage, readUsage } from "@nexus/shared";
+import { appendUsage, readUsage, writeTelegramSettings } from "@nexus/shared";
 import { defaultDeps, executeDispatch, type DispatchDeps } from "../../packages/paperclip-adapter/src/server/execute.ts";
 import { readSettings, withResultPolicy } from "../../packages/paperclip-adapter/src/settings.ts";
 import { testDispatchEnvironment } from "../../packages/paperclip-adapter/src/server/test.ts";
 import type { AdapterExecutionContext } from "../../packages/paperclip-adapter/src/adapter-types.ts";
 import { FakePaperclip } from "../fakes/fake-paperclip.ts";
+import { FAKE_TOKEN, FakeTelegram } from "../fakes/fake-telegram.ts";
 
 const FAKES = path.resolve(import.meta.dirname, "../fakes");
 const FAKE_OPENCODE = [process.execPath, path.join(FAKES, "fake-opencode.mjs")];
@@ -207,6 +208,23 @@ describe("nexus_dispatch 어댑터", () => {
     expect(usage).toHaveLength(2);
     expect(usage[1]).toMatchObject({ issue: "NEX-1", purpose: "implement", alias: "reviewer", model: "openai/gpt-5", ok: true });
     expect(usage[1]!.accountId).toBeUndefined();
+  });
+
+  it("텔레그램을 연결해 두었으면 결과를 알린다", async () => {
+    const tg = new FakeTelegram();
+    await tg.start();
+    process.env.NEXUS_TELEGRAM_API = tg.url;
+    try {
+      writeTelegramSettings(path.join(tmp, "nexus-home", "state"), { enabled: true, notifyResults: true, botToken: FAKE_TOKEN, chats: [{ id: 7, name: "정" }] });
+      paperclip.issues.set("NEX-1", { id: "NEX-1", identifier: "NEX-1", title: "검색 기능 구현", companyId: "co-1" });
+      const result = await executeDispatch(ctx(), deps);
+      expect(result.exitCode).toBe(0);
+      expect(tg.sent).toHaveLength(1);
+      expect(tg.sent[0]!.text.split("\n")[0]).toBe("✅ NEX-1 Nexus 실행 결과: 완료");
+    } finally {
+      delete process.env.NEXUS_TELEGRAM_API;
+      await tg.stop();
+    }
   });
 
   it("작업 자체가 실패하면 다른 모델로 반복하지 않고 실패로 보고한다", async () => {

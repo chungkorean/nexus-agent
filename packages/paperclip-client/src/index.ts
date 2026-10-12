@@ -54,7 +54,8 @@ export class PaperclipClient {
   }
 
   private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
-    const headers: Record<string, string> = { "content-type": "application/json", "x-paperclip-run-id": this.runId };
+    const headers: Record<string, string> = { "content-type": "application/json" };
+    if (this.runId) headers["x-paperclip-run-id"] = this.runId;
     if (this.token) headers.authorization = `Bearer ${this.token}`;
     const res = await fetch(`${this.baseUrl}${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
     const text = await res.text();
@@ -66,8 +67,18 @@ export class PaperclipClient {
     return this.request("GET", `/api/issues/${encodeURIComponent(issueId)}`);
   }
 
-  addComment(issueId: string, body: string): Promise<unknown> {
-    return this.request("POST", `/api/issues/${encodeURIComponent(issueId)}/comments`, { body });
+  /** reopen: 완료·취소된 이슈를 다시 열어 담당 에이전트를 깨운다 */
+  addComment(issueId: string, body: string, opts: { reopen?: boolean } = {}): Promise<unknown> {
+    return this.request("POST", `/api/issues/${encodeURIComponent(issueId)}/comments`, { body, ...(opts.reopen ? { reopen: true } : {}) });
+  }
+
+  /** 로컬 모드(local_trusted)에서는 토큰 없이도 회사·에이전트 목록을 읽을 수 있다. */
+  listCompanies(): Promise<Array<{ id: string; name?: string; issuePrefix?: string | null }>> {
+    return this.request("GET", "/api/companies");
+  }
+
+  listAgents(companyId: string): Promise<Array<{ id: string; name?: string; adapterType?: string; status?: string }>> {
+    return this.request("GET", `/api/companies/${encodeURIComponent(companyId)}/agents`);
   }
 
   /** 최근 댓글부터 limit개 */

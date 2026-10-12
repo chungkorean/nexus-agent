@@ -4,7 +4,20 @@ import http from "node:http";
 import type { AddressInfo } from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { AccountState, accountHasLogin, ConfigError, type Account, type Engine, type NexusConfig } from "@nexus/shared";
+import { PaperclipClient } from "@nexus/paperclip-client";
+import {
+  AccountState,
+  accountHasLogin,
+  ConfigError,
+  readTelegramSettings,
+  telegramCall,
+  writeTelegramSettings,
+  type Account,
+  type Engine,
+  type NexusConfig,
+  type TelegramSettings,
+} from "@nexus/shared";
+import { newPairingCode, TelegramBot } from "./telegram-bot.ts";
 import { USAGE_PERIODS, usageReport, type UsagePeriod } from "./usage.ts";
 import { buildLoginCommand, defaultLauncher, type LaunchResult, type LoginCommand } from "./login.ts";
 import {
@@ -36,6 +49,8 @@ export interface SettingsServerOptions {
   port?: number;
   /** 정적 파일 폴더. 생략하면 이 파일 옆의 public 또는 ../public */
   publicDir?: string;
+  /** 텔레그램 봇을 함께 돌린다. 생략하면 돌리지 않는다(테스트). */
+  telegram?: { paperclipUrl?: string; apiBase?: string; pollSeconds?: number };
 }
 
 export interface SettingsServer {
@@ -82,6 +97,62 @@ export function createSettingsServer(opts: SettingsServerOptions): SettingsServe
   let allowedHosts = new Set<string>();
 
   ensureConfigFiles(opts.configDir, opts.fallbackDir);
+  const paperclipUrl = opts.telegram?.paperclipUrl ?? PaperclipClient.resolveBaseUrl();
+  const bot = opts.telegram
+    ? new TelegramBot({ stateDir: opts.stateDir, paperclipUrl, apiBase: opts.telegram.apiBase, pollSeconds: opts.telegram.pollSeconds, usageText })
+    : null;
+
+  /** 텔레그램 /usage 명령에 보낼 이번 달 사용량 */
+  function usageText(): string {
+    const { config } = loadValid();
+    const r = usageReport(config, opts.stateDir, "month");
+    const t = r.totals;
+    const lines = [`이번 달 사용량: ${t.runs}번 실행, 성공 ${t.runs ? Math.round((t.ok / t.runs) * 100) : 0}%, 토큰 ${(t.inputTokens + t.outputTokens).toLocaleString("en-US")}개, $${t.costUsd.toFixed(2)}`];
+    for (const a of r.accounts.filter((x) => x.totals.runs || x.budget)) {
+      const b = a.budget;
+      const budget = b ? ` · 예산 ${b.monthlyBudgetUsd ? `$${b.usedUsd.toFixed(2)}/$${b.monthlyBudgetUsd}` : `${b.usedTokens.toLocaleString("en-US")}/${b.monthlyTokenLimit!.toLocaleString("en-US")} 토큰`}${b.exceeded ? " (다 씀)" : ""}` : "";
+      lines.push(`• ${a.label}: ${a.totals.runs}번, $${a.totals.costUsd.toFixed(2)}${budget}`);
+    }
+    for (const h of r.hints) lines.push(`💡 ${h.text}`);
+    return lines.join("\n");
+  }
+
+  /** 설정 화면의 텔레그램 칸에 보여 줄 상태. 토큰은 내보내지 않는다. */
+  async function telegramState(companyIdQuery: string | null) {
+    const s = readTelegramSettings(opts.stateDir);
+    const client = new PaperclipClient(paperclipUrl, undefined, "");
+    let companies: Array<{ id: string; name: string }> = [];
+    let agents: Array<{ id: string; name: string; adapterType: string }> = [];
+    let paperclipError: string | null = null;
+    try {
+      companies = (await withTimeout(client.listCompanies(), 3000)).map((c) => ({ id: c.id, name: c.name ?? c.id }));
+      const companyId = companyIdQuery ?? s.companyId ?? companies[0]?.id;
+      if (companyId) agents = (await withTimeout(client.listAgents(companyId), 3000)).map((a) => ({ id: a.id, name: a.name ?? a.id, adapterType: a.adapterType ?? "" }));
+    } catch {
+      paperclipError = "Paperclip에 연결하지 못했어요. Paperclip을 켠 뒤 화면을 새로 고쳐 주세요.";
+    }
+    const pairing = s.pairing && Date.parse(s.pairing.expiresAt) > Date.now() ? { code: s.pairing.code, expiresAt: s.pairing.expiresAt } : null;
+    return {
+      hasToken: Boolean(s.botToken),
+      botName: s.botName ?? null,
+      enabled: s.enabled,
+      notifyResults: s.notifyResults,
+      chats: s.chats,
+      companyId: s.companyId ?? null,
+      agentId: s.agentId ?? null,
+      pairing,
+      bot: bot ? bot.getStatus() : null,
+      companies,
+      agents,
+      paperclipError,
+    };
+  }
+
+  function saveTelegram(mutate: (s: TelegramSettings) => void): void {
+    const s = readTelegramSettings(opts.stateDir);
+    mutate(s);
+    writeTelegramSettings(opts.stateDir, s);
+  }
 
   /** 지금 설정을 읽고 검사한다. 문제가 있으면 화면에 보여 줄 오류로 바꾼다. */
   function loadValid(): { loaded: LoadedFiles; config: NexusConfig } {
@@ -243,6 +314,97 @@ export function createSettingsServer(opts: SettingsServerOptions): SettingsServe
       };
     },
 
+    "/api/telegram/token": async (body) => {
+      const token = typeof body.token === "string" ? body.token.trim() : "";
+      if (!/^\d{5,15}:[A-Za-z0-9_-]{30,60}$/.test(token)) throw new HttpError(400, "봇 토큰 모양이 아니에요. BotFather가 준 '숫자:영문' 형태의 토큰을 통째로 붙여 넣어 주세요.");
+      let me: { username?: string; first_name?: string };
+      try {
+        me = await telegramCall(token, "getMe", {}, { apiBase: opts.telegram?.apiBase });
+      } catch (err) {
+        throw new HttpError(400, `텔레그램이 이 토큰을 받아 주지 않았어요: ${(err as Error).message}`);
+      }
+      const botName = me.username ? `@${me.username}` : (me.first_name ?? "봇");
+      // 웹훅이 걸려 있으면 getUpdates로 받을 수 없어서 지운다.
+      await telegramCall(token, "deleteWebhook", {}, { apiBase: opts.telegram?.apiBase }).catch(() => undefined);
+      saveTelegram((s) => {
+        if (s.botToken !== token) s.chats = [];
+        s.botToken = token;
+        s.botName = botName;
+      });
+      return { ok: true, message: `${botName} 봇을 연결했어요. 이제 '연결 코드 만들기'를 눌러 내 텔레그램과 짝지어 주세요.` };
+    },
+
+    "/api/telegram/token/remove": () => {
+      saveTelegram((s) => {
+        delete s.botToken;
+        delete s.botName;
+        delete s.pairing;
+        s.chats = [];
+      });
+      return { ok: true, message: "봇 연결을 끊었어요." };
+    },
+
+    "/api/telegram/settings": async (body) => {
+      const sentences: string[] = [];
+      const companyId = typeof body.companyId === "string" ? body.companyId : undefined;
+      const agentId = typeof body.agentId === "string" ? body.agentId : undefined;
+      if (companyId !== undefined && !/^[A-Za-z0-9_-]{1,80}$/.test(companyId)) throw new HttpError(400, "회사를 다시 골라 주세요.");
+      if (agentId !== undefined && !/^[A-Za-z0-9_-]{1,80}$/.test(agentId)) throw new HttpError(400, "에이전트를 다시 골라 주세요.");
+      for (const key of ["enabled", "notifyResults"] as const) {
+        if (body[key] !== undefined && typeof body[key] !== "boolean") throw new HttpError(400, "켜거나 끄기만 할 수 있어요.");
+      }
+      saveTelegram((s) => {
+        if (typeof body.enabled === "boolean") {
+          s.enabled = body.enabled;
+          sentences.push(body.enabled ? "텔레그램으로 일을 받아요." : "텔레그램으로 일을 받지 않아요.");
+        }
+        if (typeof body.notifyResults === "boolean") {
+          s.notifyResults = body.notifyResults;
+          sentences.push(body.notifyResults ? "작업이 끝나면 텔레그램으로 알려요." : "텔레그램으로 결과를 알리지 않아요.");
+        }
+        if (companyId !== undefined) {
+          if (s.companyId !== companyId) delete s.agentId;
+          s.companyId = companyId;
+        }
+        if (agentId !== undefined) s.agentId = agentId;
+      });
+      if (companyId !== undefined || agentId !== undefined) sentences.push("일을 맡길 곳을 바꿨어요.");
+      return { ok: true, message: sentences.join(" ") || "저장했어요." };
+    },
+
+    "/api/telegram/pair": () => {
+      const s = readTelegramSettings(opts.stateDir);
+      if (!s.botToken) throw new HttpError(400, "먼저 봇 토큰을 넣어 주세요.");
+      const pairing = newPairingCode();
+      saveTelegram((x) => {
+        x.pairing = pairing;
+      });
+      return { ok: true, code: pairing.code, expiresAt: pairing.expiresAt, botName: s.botName };
+    },
+
+    "/api/telegram/unlink": (body) => {
+      const chatId = Number(body.chatId);
+      saveTelegram((s) => {
+        s.chats = s.chats.filter((c) => c.id !== chatId);
+      });
+      return { ok: true, message: "그 대화방과의 연결을 끊었어요." };
+    },
+
+    "/api/telegram/test": async () => {
+      const s = readTelegramSettings(opts.stateDir);
+      if (!s.botToken || !s.chats.length) throw new HttpError(400, "먼저 봇 토큰을 넣고 내 텔레그램과 연결해 주세요.");
+      const failed: string[] = [];
+      for (const chat of s.chats) {
+        try {
+          await telegramCall(s.botToken, "sendMessage", { chat_id: chat.id, text: "Nexus 시험 메시지예요. 이 메시지가 보이면 연결된 거예요." }, { apiBase: opts.telegram?.apiBase });
+        } catch (err) {
+          failed.push(`${chat.name}: ${(err as Error).message}`);
+        }
+      }
+      if (failed.length) throw new HttpError(502, "일부 대화방에 보내지 못했어요.", failed);
+      return { ok: true, message: "시험 메시지를 보냈어요. 텔레그램을 확인해 주세요." };
+    },
+
     "/api/accounts/reset": (body) => {
       const { config } = loadValid();
       const account = findAccount(config, body);
@@ -335,6 +497,11 @@ export function createSettingsServer(opts: SettingsServerOptions): SettingsServe
         if (req.method !== "GET") return send(res, 405, { ok: false, error: "지원하지 않는 요청이에요." });
         return send(res, 200, { ok: true, ...state() });
       }
+      if (pathname === "/api/telegram") {
+        if (req.method !== "GET") return send(res, 405, { ok: false, error: "지원하지 않는 요청이에요." });
+        const companyId = url.searchParams.get("companyId");
+        return send(res, 200, { ok: true, ...(await telegramState(companyId && /^[A-Za-z0-9_-]{1,80}$/.test(companyId) ? companyId : null)) });
+      }
       if (pathname === "/api/usage") {
         if (req.method !== "GET") return send(res, 405, { ok: false, error: "지원하지 않는 요청이에요." });
         const period = (url.searchParams.get("period") ?? "month") as UsagePeriod;
@@ -379,15 +546,33 @@ export function createSettingsServer(opts: SettingsServerOptions): SettingsServe
           server.off("error", onError);
           const { port } = server.address() as AddressInfo;
           allowedHosts = new Set([`127.0.0.1:${port}`, `localhost:${port}`]);
+          bot?.start();
           resolve(`http://127.0.0.1:${port}/`);
         });
       });
     },
-    close() {
+    async close() {
+      await bot?.stop();
       return new Promise<void>((resolve) => {
         server.closeAllConnections?.();
         server.close(() => resolve());
       });
     },
   };
+}
+
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error("timeout")), ms);
+    p.then(
+      (v) => {
+        clearTimeout(t);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(t);
+        reject(e);
+      },
+    );
+  });
 }

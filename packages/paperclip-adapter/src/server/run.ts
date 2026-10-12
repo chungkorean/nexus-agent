@@ -1,5 +1,6 @@
 import type { PaperclipClient } from "@nexus/paperclip-client";
-import type { AccountState, Engine, Executor, Route, RunOutcome, RunRequest, UsageEntry, UsageSummary } from "@nexus/shared";
+import { notifyTelegram, type AccountState, type Engine, type Executor, type Route, type RunOutcome, type RunRequest, type UsageEntry, type UsageSummary } from "@nexus/shared";
+import type { PaperclipIssue } from "@nexus/paperclip-client";
 
 export const ENGINE_LABEL: Record<Engine, string> = { opencode: "OpenCode", "claude-code": "Claude Code" };
 export const PROVIDER_ERRORS = new Set(["provider_quota", "provider_auth", "provider_unavailable", "spawn_failed"]);
@@ -159,4 +160,43 @@ export async function finishIssue(
   if (opts.signal?.aborted) return;
   if (ok && !opts.markDoneOnSuccess) return;
   await safeStatus(client, issueId, ok ? "done" : "blocked", log);
+}
+
+/** 결과 댓글을 남기고, 텔레그램을 연결해 두었으면 같은 내용을 짧게 알린다. */
+export async function postResult(client: PaperclipClient, issue: PaperclipIssue, stateDir: string, body: string, log?: Log): Promise<void> {
+  await safeComment(client, issue.id, body);
+  await notifyTelegram(stateDir, { issueId: issue.id, identifier: issue.identifier, text: telegramSummary(issue, body) }, log);
+}
+
+const HEADING_ICON: Array<[RegExp, string]> = [
+  [/완료/, "✅"],
+  [/확인 필요/, "⚠️"],
+  [/실패|못했어요/, "❌"],
+];
+
+/**
+ * 이슈 댓글(마크다운)을 텔레그램용 짧은 글로 바꾼다. 표는 빼고, 제목 줄에는 이슈 번호와 상태 아이콘을 붙인다.
+ */
+export function telegramSummary(issue: Pick<PaperclipIssue, "identifier" | "id" | "title">, body: string, max = 1500): string {
+  const lines = body.split(/\r?\n/);
+  const first = (lines.find((l) => l.trim()) ?? "").replace(/^#+\s*/, "").trim();
+  const icon = HEADING_ICON.find(([re]) => re.test(first))?.[1] ?? "ℹ️";
+  const rest: string[] = [];
+  let skippedFirst = false;
+  for (const raw of lines) {
+    if (!skippedFirst && raw.trim()) {
+      skippedFirst = true;
+      continue;
+    }
+    const line = raw.trimEnd();
+    if (/^\s*\|/.test(line)) continue;
+    const plain = line.replace(/^#{1,6}\s*/, "■ ").replace(/\*\*/g, "").replace(/`/g, "");
+    if (!plain.trim() && (!rest.length || !rest[rest.length - 1]!.trim())) continue;
+    rest.push(plain);
+  }
+  let text = rest.join("\n").trim();
+  if (text.length > max) text = text.slice(0, max).replace(/\n[^\n]*$/, "") + "\n…";
+  return [`${icon} ${issue.identifier ?? issue.id} ${first}`, issue.title, "", text, "", "이 메시지에 답장하면 이슈에 댓글로 남기고 다시 맡겨요."]
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n");
 }

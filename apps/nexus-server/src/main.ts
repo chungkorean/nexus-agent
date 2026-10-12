@@ -35,6 +35,7 @@ try {
     stateDir: defaultStateDir(),
     accountsDir: defaultAccountsDir(),
     port,
+    telegram: {},
   });
   const url = await settings.listen();
   console.log("");

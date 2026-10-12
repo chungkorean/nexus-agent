@@ -176,6 +176,24 @@ input[type=number] {
 }
 .hint-list { margin: 0 0 16px; }
 
+/* 8. 텔레그램 */
+.steps { list-style: none; margin: 0; padding: 0; counter-reset: step; }
+.steps > li { position: relative; padding: 0 0 18px 44px; border-left: 2px solid var(--line); margin-left: 15px; }
+.steps > li:last-child { border-left-color: transparent; padding-bottom: 0; }
+.steps > li::before {
+  counter-increment: step; content: counter(step);
+  position: absolute; left: -16px; top: 0; width: 30px; height: 30px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 15px;
+  background: var(--card); border: 2px solid var(--line); color: var(--muted);
+}
+.steps > li.done::before { content: "✓"; background: var(--ok-soft); border-color: var(--ok); color: var(--ok); }
+.steps h3 { margin: 2px 0 6px; font-size: 18px; }
+.inline-form { display: flex; gap: 8px; flex-wrap: wrap; align-items: stretch; }
+.inline-form > input, .inline-form > select { flex: 1 1 240px; width: auto; }
+.code-box { font-family: Consolas, "D2Coding", monospace; font-size: 34px; letter-spacing: 8px; font-weight: 700; padding: 8px 16px; border: 2px dashed var(--accent); border-radius: 12px; display: inline-block; margin: 6px 0; }
+.chat-list { list-style: none; padding: 0; margin: 8px 0; }
+.chat-list li { display: flex; align-items: center; justify-content: space-between; gap: 8px; border: 1px solid var(--line); border-radius: 10px; padding: 6px 6px 6px 12px; margin-bottom: 6px; }
+
 /* 아래 고정 막대 */
 .bar {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
@@ -627,9 +645,88 @@ function rate(t) {
 
 const PERIODS = [["today", "오늘"], ["7d", "최근 7일"], ["30d", "최근 30일"], ["month", "이번 달"]];
 const PURPOSES = { design: "설계", implement: "구현", refactor: "리팩터", test: "테스트 작성", review: "검토", docs: "문서", research: "조사·분석", ops: "터미널·파일", plan: "작업 나누기", conflict: "충돌 해결" };
+let T = null;          // 텔레그램
 let U = null;          // 사용량
 let period = "month";
 try { period = localStorage.getItem("nexus.period") || "month"; } catch (e) { /* 저장소를 못 써도 된다 */ }
+
+async function loadTelegram(companyId) {
+  try { T = await api("/api/telegram" + (companyId ? "?companyId=" + encodeURIComponent(companyId) : "")); }
+  catch (e) { T = { error: e.error || "텔레그램 설정을 읽지 못했어요." }; }
+}
+
+function rerenderTelegram() {
+  const sec = $("sec-telegram");
+  if (sec) sec.replaceWith(renderTelegram());
+}
+
+function telegramAction(fn) {
+  withBusy(async () => {
+    const res = await fn();
+    await loadTelegram();
+    rerenderTelegram();
+    if (res && res.message) toast(res.message, "ok");
+  });
+}
+
+function renderTelegram() {
+  const sec = h("section", { class: "card", id: "sec-telegram" },
+    sectionTitle(8, "텔레그램"),
+    h("p", { class: "help" }, "휴대폰 텔레그램으로 할 일을 보내면 Paperclip 이슈로 등록하고, 작업이 끝나면 결과를 알려 줘요. 이 PC에서 Nexus(트레이 실행기나 설정 화면)가 켜져 있어야 해요."));
+  if (!T) return sec;
+  if (T.error) { sec.append(h("p", { class: "notice bad" }, T.error)); return sec; }
+
+  const tokenInput = h("input", { type: "text", autocomplete: "off", spellcheck: "false", placeholder: "예: 123456789:AAH...", "aria-label": "봇 토큰" });
+  const step1 = h("li", { class: T.hasToken ? "done" : "" },
+    h("h3", {}, "봇 만들기"),
+    T.hasToken
+      ? h("div", {}, h("p", {}, "연결한 봇: ", h("strong", {}, T.botName || "봇")),
+          h("button", { type: "button", class: "small-btn danger", onclick: () => telegramAction(async () => {
+            const ok = await dialog("봇 연결을 끊을까요?", h("p", {}, "연결한 대화방도 모두 끊겨요. 다시 쓰려면 토큰을 다시 넣어야 해요."), [{ text: "취소", value: false }, { text: "끊기", value: true, kind: "primary danger" }]);
+            return ok ? api("/api/telegram/token/remove", {}) : null;
+          }) }, "봇 연결 끊기"))
+      : h("div", {},
+          h("p", { class: "small" }, "텔레그램에서 @BotFather를 찾아 /newbot 을 보내고, 봇 이름과 영문 아이디(끝이 bot)를 정하면 토큰을 줘요. 그 토큰을 아래에 붙여 넣으세요. 토큰은 이 PC에만 저장해요."),
+          h("div", { class: "inline-form" }, tokenInput,
+            h("button", { type: "button", class: "primary", onclick: () => telegramAction(() => api("/api/telegram/token", { token: tokenInput.value })) }, "확인"))));
+
+  const linked = T.chats.length > 0;
+  const step2 = h("li", { class: linked ? "done" : "" },
+    h("h3", {}, "내 텔레그램과 연결하기"),
+    linked ? h("ul", { class: "chat-list" }, T.chats.map((c) => h("li", {}, h("span", {}, c.name),
+      h("button", { type: "button", class: "small-btn danger", onclick: () => telegramAction(() => api("/api/telegram/unlink", { chatId: c.id })) }, "연결 끊기")))) : null,
+    T.pairing
+      ? h("div", {}, h("p", {}, "텔레그램에서 ", h("strong", {}, T.botName || "봇"), "을 찾아 아래 숫자를 보내세요. " + formatUntil(T.pairing.expiresAt) + "까지 쓸 수 있어요."),
+          h("div", { class: "code-box", "aria-label": "연결 코드" }, T.pairing.code),
+          h("div", {}, h("button", { type: "button", class: "small-btn", onclick: () => telegramAction(async () => null) }, "보냈어요, 새로 고치기")))
+      : h("button", { type: "button", class: linked ? "small-btn" : "primary", disabled: !T.hasToken, onclick: () => telegramAction(() => api("/api/telegram/pair", {})) }, linked ? "다른 기기 연결하기" : "연결 코드 만들기"));
+
+  const companySel = h("select", { "aria-label": "Paperclip 회사", disabled: !T.companies.length, onchange: (e) => telegramAction(async () => {
+    await api("/api/telegram/settings", { companyId: e.target.value });
+    return null;
+  }) }, T.companies.length ? T.companies.map((c) => h("option", { value: c.id, selected: c.id === T.companyId }, c.name)) : [h("option", {}, "회사 목록 없음")]);
+  const agentSel = h("select", { "aria-label": "맡길 에이전트", disabled: !T.agents.length, onchange: (e) => telegramAction(() => api("/api/telegram/settings", { companyId: companySel.value, agentId: e.target.value })) },
+    [h("option", { value: "", selected: !T.agentId }, "에이전트를 골라 주세요"), ...T.agents.map((a) => h("option", { value: a.id, selected: a.id === T.agentId }, a.name + (a.adapterType === "nexus_dispatch" ? " (Nexus)" : "")))]);
+  const target = Boolean(T.companyId && T.agentId);
+  const step3 = h("li", { class: target ? "done" : "" },
+    h("h3", {}, "일을 맡길 곳 고르기"),
+    T.paperclipError ? h("p", { class: "notice bad" }, T.paperclipError) : h("p", { class: "small" }, "보통 Nexus 어댑터를 쓰는 '개발 부서' 에이전트를 골라요. 코딩이 아닌 일은 Nexus가 Hermes에게 넘겨요."),
+    h("div", { class: "row2" },
+      h("label", { class: "field" }, h("span", {}, "회사"), companySel),
+      h("label", { class: "field" }, h("span", {}, "에이전트"), agentSel)));
+
+  const step4 = h("li", {},
+    h("h3", {}, "켜고 끄기"),
+    toggleRow("tgEnabled", "텔레그램으로 일 받기", "연결한 대화방에서 보낸 글을 Paperclip 이슈로 등록해요. 첫 줄이 제목이에요.", T.enabled,
+      (v) => telegramAction(() => api("/api/telegram/settings", { enabled: v }))),
+    toggleRow("tgNotify", "작업이 끝나면 알리기", "Nexus가 작업을 끝내면 결과를 짧게 보내요. 그 알림에 답장하면 이슈에 댓글로 남기고 다시 맡겨요.", T.notifyResults,
+      (v) => telegramAction(() => api("/api/telegram/settings", { notifyResults: v }))),
+    h("button", { type: "button", class: "small-btn", disabled: !linked, onclick: () => telegramAction(() => api("/api/telegram/test", {})) }, "시험 메시지 보내기"),
+    T.bot && T.bot.lastError ? h("p", { class: "notice bad" }, "봇 문제: " + T.bot.lastError) : null);
+
+  sec.append(h("ol", { class: "steps" }, step1, step2, step3, step4));
+  return sec;
+}
 
 async function loadUsage() {
   try { U = await api("/api/usage?period=" + encodeURIComponent(period)); }
@@ -803,7 +900,7 @@ function renderMisc() {
 function rerender() {
   const y = window.scrollY;
   const open = [...document.querySelectorAll("details[open]")].map((d) => d.closest("section").id + ":" + [...d.closest("section").querySelectorAll("details")].indexOf(d));
-  $("app").replaceChildren(renderTasks(), renderPlanning(), renderResults(), renderAccounts(), renderModels(), renderMisc(), renderUsage());
+  $("app").replaceChildren(renderTasks(), renderPlanning(), renderResults(), renderAccounts(), renderModels(), renderMisc(), renderUsage(), renderTelegram());
   for (const key of open) {
     const [sec, i] = key.split(":");
     const d = document.querySelectorAll("#" + sec + " details")[Number(i)];
@@ -825,7 +922,7 @@ function rerenderModels() {
 
 // ---------- 불러오기와 동작 ----------
 async function load(keepDraft) {
-  const [s] = await Promise.all([api("/api/state"), loadUsage()]);
+  const [s] = await Promise.all([api("/api/state"), loadUsage(), loadTelegram()]);
   S = s;
   const fresh = toDraft(s);
   if (keepDraft && draft) {

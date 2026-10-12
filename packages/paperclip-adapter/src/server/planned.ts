@@ -26,7 +26,7 @@ import { ADAPTER_TYPE, type DispatchSettings } from "../settings.ts";
 import { aggregate, checkLines, type AggregateResult } from "./aggregate.ts";
 import { githubLines, publishToGithub, type GithubResult } from "./github.ts";
 import { cleanupWorktree, serialGit } from "./gitqueue.ts";
-import { finishIssue, firstLine, outcomeLines, routeLine, runRoutes, safeComment, safeStatus, sumUsage, type Attempt, type Log } from "./run.ts";
+import { finishIssue, firstLine, postResult, outcomeLines, routeLine, runRoutes, safeComment, safeStatus, sumUsage, type Attempt, type Log } from "./run.ts";
 
 export interface PlannedEnv {
   ctx: AdapterExecutionContext;
@@ -190,7 +190,7 @@ export async function runPlanned(env: PlannedEnv, plan: Plan, planAttempts: Atte
     await log(github.pushed ? `GitHub에 올렸어요${github.prUrl ? `: ${github.prUrl}` : ""}.` : `GitHub에 올리지 못했어요: ${github.error}`);
     summary += "\n" + githubLines(github, agg.branch).join("\n");
   }
-  await safeComment(client, issue.id, summary);
+  await postResult(client, issue, settings.stateDir, summary, log);
   await finishIssue(client, issue.id, overallOk, { markDoneOnSuccess: settings.markDoneOnSuccess, signal: ctx.signal }, log);
 
   const outcomes: RunOutcome[] = [...planAttempts, ...[...runs.values()].flatMap((r) => r.attempts), ...aggAttempts].map((a) => a.outcome);
