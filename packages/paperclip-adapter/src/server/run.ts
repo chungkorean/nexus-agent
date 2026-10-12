@@ -67,10 +67,20 @@ export function outcomeLines(attempts: Attempt[]): string[] {
   lines.push(o.ok ? o.summary : `오류: ${o.errorMessage}`);
   if (o.changedFiles.length) {
     lines.push("", "| 바뀐 파일 | 추가 | 삭제 |", "| --- | --- | --- |");
-    for (const f of o.changedFiles.slice(0, 50)) lines.push(`| ${f.file} | ${f.additions ?? f.status ?? ""} | ${f.deletions ?? ""} |`);
+    for (const f of o.changedFiles.slice(0, 50)) lines.push(`| ${f.file} | ${f.additions ?? statusLabel(f.status)} | ${f.deletions ?? ""} |`);
     if (o.changedFiles.length > 50) lines.push(`| 외 ${o.changedFiles.length - 50}개 | | |`);
   }
   return lines;
+}
+
+/** git status 기호를 사람이 읽는 말로 */
+export function statusLabel(status: string | undefined): string {
+  if (!status) return "";
+  if (status === "??" || status.includes("A")) return "새 파일";
+  if (status.includes("D")) return "삭제";
+  if (status.includes("R")) return "이름 바뀜";
+  if (status.includes("M")) return "수정";
+  return status;
 }
 
 export function sumUsage(outcomes: RunOutcome[]): UsageSummary | undefined {

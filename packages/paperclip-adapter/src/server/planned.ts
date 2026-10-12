@@ -24,7 +24,7 @@ import {
 } from "@nexus/shared";
 import type { AdapterExecutionContext, AdapterExecutionResult } from "../adapter-types.ts";
 import { ADAPTER_TYPE, type DispatchSettings } from "../settings.ts";
-import { aggregate, type AggregateResult } from "./aggregate.ts";
+import { aggregate, checkLines, type AggregateResult } from "./aggregate.ts";
 import { githubLines, publishToGithub, type GithubResult } from "./github.ts";
 import { serialGit } from "./gitqueue.ts";
 import { finishIssue, firstLine, outcomeLines, routeLine, runRoutes, safeComment, safeStatus, sumUsage, type Attempt, type Log } from "./run.ts";
@@ -395,27 +395,7 @@ function summaryComment(
       lines.push(`- 충돌 해결: \`${r.branch}\` (${r.files.join(", ")}) → ${r.ok ? "AI가 풀었어요" : "풀지 못했어요"}${by ? ` · ${by.model}` : ""}`);
     }
     if (!agg.ok && agg.error) lines.push(`- 합치기 실패: ${agg.error}`);
-    if (agg.tests) {
-      const t = agg.tests;
-      const desc = {
-        passed: `통과 (\`${t.command}\`, ${t.durationSec ?? 0}초)`,
-        failed: `실패 (\`${t.command}\`)`,
-        unavailable: `테스트 도구가 없어 돌리지 못했어요 (\`${t.command}\`)`,
-        none: "테스트를 찾지 못했어요",
-      }[t.status];
-      lines.push(`- 테스트: ${desc}`);
-      if (t.status === "failed" && t.output) lines.push("", "```", t.output.split("\n").slice(-30).join("\n"), "```");
-    } else if (agg.ok) {
-      lines.push("- 테스트: 돌리지 않음");
-    }
-    if (agg.review) {
-      const rv = agg.review;
-      const by = rv.attempts.at(-1)?.route;
-      const verdict = { ok: "문제 없음", attention: "확인 필요", unknown: "판정 없음" }[rv.verdict];
-      lines.push(`- 검토: ${verdict}${by ? ` · ${by.model}${rv.sameProvider ? " (다른 회사 모델이 없어 같은 회사 모델로 검토)" : " (구현과 다른 회사 모델)"}` : ""}`);
-      const body = rv.text.replace(/^판정\s*[:：].*\n?/, "").trim();
-      if (body) lines.push("", ...body.slice(0, 3000).split("\n").map((l) => `> ${l}`));
-    }
+    lines.push(...checkLines(agg.tests, agg.review, agg.ok));
   }
 
   const branches = plan.subtasks.map((s) => runs.get(s.key)?.commit && runs.get(s.key)?.branch).filter(Boolean) as string[];

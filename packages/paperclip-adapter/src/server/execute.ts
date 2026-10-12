@@ -3,10 +3,12 @@ import { buildPrompt, classify, planRoutes, shouldPlan } from "@nexus/core";
 import { ClaudeCodeExecutor } from "@nexus/executor-claude-code";
 import { OpenCodeExecutor } from "@nexus/executor-opencode";
 import { PaperclipClient, labelNames, type PaperclipComment, type PaperclipIssue } from "@nexus/paperclip-client";
-import { AccountState, loadConfig, type Classification, type Engine, type Executor, type NexusConfig } from "@nexus/shared";
+import { AccountState, loadConfig, repoInfo, workingDiff, type Classification, type Engine, type Executor, type NexusConfig } from "@nexus/shared";
 import type { AdapterExecutionContext, AdapterExecutionResult } from "../adapter-types.ts";
 import { ADAPTER_TYPE, bundledConfigDir, readSettings, withResultPolicy, type DispatchSettings } from "../settings.ts";
+import { checkLines, crossReview, type Review } from "./aggregate.ts";
 import { makePlan, runPlanned } from "./planned.ts";
+import { runTests, type TestRun } from "./verify.ts";
 import { finishIssue, firstLine, outcomeLines, routeLine, runRoutes, safeComment, sumUsage, type Attempt } from "./run.ts";
 
 /** 테스트에서 가짜 실행기·클라이언트로 바꿔 끼울 수 있게 의존성을 모아 둔다. */
@@ -138,29 +140,54 @@ export async function executeDispatch(ctx: AdapterExecutionContext, deps: Dispat
   }
 
   const last = attempts[attempts.length - 1]!;
-  await safeComment(client, issue.id, reportComment(classification, attempts));
-  await finishIssue(client, issue.id, last.outcome.ok, { markDoneOnSuccess: settings.markDoneOnSuccess, signal: ctx.signal }, log);
 
-  const all = [...planAttempts, ...attempts];
+  // 3단계 확인: 작업 폴더에서 바로 고친 결과로 테스트를 돌리고, 다른 회사 모델에게 검토받는다.
+  let checks: { tests: TestRun | null; review: Review | null } | null = null;
+  const policy = config.routing.results;
+  if (last.outcome.ok && last.outcome.changedFiles.length && (policy.runTests || policy.review) && !ctx.signal?.aborted && (await repoInfo(cwd))) {
+    checks = { tests: null, review: null };
+    if (policy.runTests) {
+      await log("바뀐 결과로 테스트를 돌려요.");
+      checks.tests = await runTests(cwd, policy.testCommand, { timeoutSec: Math.min(settings.timeoutSec, 1800), signal: ctx.signal });
+      await log(`테스트: ${checks.tests.status}${checks.tests.command ? ` (${checks.tests.command})` : ""}`);
+    }
+    if (policy.review && !ctx.signal?.aborted) {
+      const d = await workingDiff(cwd, last.outcome.changedFiles);
+      if (d.diff) {
+        checks.review = await crossReview(
+          { config, classification, state, executors, ctx, issue, log, settings: { ...settings, cwd } },
+          { implementers: [last.route], stat: d.stat, diff: d.diff, tests: checks.tests, cwd, intro: "다른 AI가 작업 폴더에서 바로 구현한 결과예요. 당신은 구현에 참여하지 않은 검토자입니다." },
+        );
+      }
+    }
+  }
+  const reviewAttempts = checks?.review?.attempts ?? [];
+  const passed = last.outcome.ok && checks?.tests?.status !== "failed";
+  await safeComment(client, issue.id, reportComment(classification, attempts, checks));
+  await finishIssue(client, issue.id, passed, { markDoneOnSuccess: settings.markDoneOnSuccess, signal: ctx.signal }, log);
+
+  const all = [...planAttempts, ...attempts, ...reviewAttempts];
   const totalCost = all.reduce((sum, a) => sum + (a.outcome.costUsd ?? 0), 0);
   const result: AdapterExecutionResult = {
-    exitCode: last.outcome.ok ? 0 : 1,
+    exitCode: passed ? 0 : 1,
     signal: null,
     timedOut: last.outcome.timedOut ?? false,
-    usage: planAttempts.length ? sumUsage(all.map((a) => a.outcome)) : last.outcome.usage,
+    usage: all.length > 1 ? sumUsage(all.map((a) => a.outcome)) : last.outcome.usage,
     usageBasis: "per_run",
     sessionId: last.outcome.sessionId ?? null,
     provider: last.outcome.provider ?? null,
     model: last.outcome.model,
     billingType: last.route.engine === "claude-code" ? "subscription" : "unknown",
     costUsd: totalCost || null,
-    summary: last.outcome.ok ? firstLine(last.outcome.summary) : `실패: ${last.outcome.errorMessage}`,
-    errorMessage: last.outcome.ok ? null : last.outcome.errorMessage ?? null,
+    summary: !last.outcome.ok ? `실패: ${last.outcome.errorMessage}` : !passed ? "바뀐 결과가 테스트를 통과하지 못했어요" : firstLine(last.outcome.summary),
+    errorMessage: !last.outcome.ok ? last.outcome.errorMessage ?? null : !passed ? "바뀐 결과가 테스트를 통과하지 못했어요" : null,
     errorFamily: last.outcome.errorFamily === "provider_quota" ? "provider_quota" : null,
     resultJson: {
       classification,
       attempts: attempts.map((a) => ({ alias: a.route.alias, account: a.route.accountId ?? null, engine: a.route.engine, model: a.route.model, ok: a.outcome.ok, error: a.outcome.errorMessage ?? null })),
       changedFiles: last.outcome.changedFiles,
+      tests: checks?.tests ?? null,
+      review: checks?.review ? { verdict: checks.review.verdict, sameProvider: checks.review.sameProvider } : null,
     },
   };
   return result;
@@ -196,15 +223,18 @@ async function delegate(
   }
 }
 
-export function reportComment(c: Classification, attempts: Attempt[]): string {
+export function reportComment(c: Classification, attempts: Attempt[], checks: { tests: TestRun | null; review: Review | null } | null = null): string {
   const o = attempts[attempts.length - 1]!.outcome;
-  return [
-    o.ok ? `### Nexus 실행 결과: 완료` : `### Nexus 실행 결과: 실패`,
+  const heading = !o.ok ? "실패" : checks?.tests?.status === "failed" ? "확인 필요" : "완료";
+  const lines = [
+    `### Nexus 실행 결과: ${heading}`,
     "",
     `- 실행: ${routeLine(attempts[attempts.length - 1]!.route)}`,
     `- 분류: ${c.taskType}, 위험도 ${c.risk === "high" ? "높음" : "낮음"} (${c.reasons.join("; ")})`,
     ...outcomeLines(attempts),
-  ].join("\n");
+  ];
+  if (checks && (checks.tests || checks.review)) lines.push("", "#### 확인", ...checkLines(checks.tests, checks.review, false));
+  return lines.join("\n");
 }
 
 const CLOSED_STATUSES: Record<string, string> = { done: "완료", cancelled: "취소", blocked: "막힘", in_review: "검토 중" };

@@ -125,24 +125,17 @@ export async function aggregate(
 
     // 3. 구현과 다른 회사 모델이 전체 변경을 검토
     if (policy.review && d.diff && !ctx.signal?.aborted) {
-      const used = new Set(input.implementers.map(routeProvider));
-      const all = planRoutes({ taskType: "review", risk: classification.risk }, config, { isCoolingDown: (id) => env.state.isCoolingDown(id) });
-      const other = all.filter((r) => !used.has(routeProvider(r)));
-      const routes = other.length ? other : all;
-      if (routes.length) {
-        await log(`${other.length ? "다른 회사" : "같은 회사"} 모델에게 전체 변경 검토를 맡겨요.`);
-        const attempts = await runRoutes(
-          routes,
-          { cwd: projectDir, prompt: reviewPrompt(env, plan, d.stat, d.diff, result.tests), readOnly: true, timeoutSec: Math.min(settings.timeoutSec, 900), onLog: ctx.onLog, signal: ctx.signal },
-          env.executors,
-          env.state,
-          (line) => log(`[검토] ${line}`),
-        );
-        result.attempts.push(...attempts);
-        const last = attempts.at(-1);
-        result.review = last?.outcome.ok
-          ? { verdict: parseVerdict(last.outcome.summary), text: last.outcome.summary.trim(), sameProvider: !other.length, attempts }
-          : { verdict: "unknown", text: `검토하지 못했어요: ${last?.outcome.errorMessage ?? "쓸 수 있는 모델이 없어요"}`, sameProvider: !other.length, attempts };
+      const review = await crossReview(env, {
+        implementers: input.implementers,
+        stat: d.stat,
+        diff: d.diff,
+        tests: result.tests,
+        cwd: projectDir,
+        intro: `여러 AI가 하위 작업 ${plan.subtasks.length}개로 나눠 구현한 결과를 하나로 합쳤어요. 당신은 구현에 참여하지 않은 검토자입니다.`,
+      });
+      if (review) {
+        result.review = review;
+        result.attempts.push(...review.attempts);
       }
     }
     return result;
@@ -220,7 +213,59 @@ function conflictPrompt(plan: Plan, key: string, files: string[], ident: string)
   ].join("\n");
 }
 
-function reviewPrompt(env: PlannedEnv, plan: Plan, stat: string, diff: string, tests: TestRun | null): string {
+export type ReviewEnv = Pick<PlannedEnv, "config" | "classification" | "state" | "executors" | "ctx" | "issue" | "log" | "settings">;
+
+/** 구현에 쓰지 않은 회사의 모델에게 변경 전체를 읽기 전용으로 검토받는다. 쓸 모델이 없으면 null */
+export async function crossReview(
+  env: ReviewEnv,
+  input: { implementers: Route[]; stat: string; diff: string; tests: TestRun | null; cwd: string; intro: string },
+): Promise<Review | null> {
+  const { config, classification, ctx, settings, log } = env;
+  const used = new Set(input.implementers.map(routeProvider));
+  const all = planRoutes({ taskType: "review", risk: classification.risk }, config, { isCoolingDown: (id) => env.state.isCoolingDown(id) });
+  const other = all.filter((r) => !used.has(routeProvider(r)));
+  const routes = other.length ? other : all;
+  if (!routes.length) return null;
+  await log(`${other.length ? "다른 회사" : "같은 회사"} 모델에게 전체 변경 검토를 맡겨요.`);
+  const attempts = await runRoutes(
+    routes,
+    { cwd: input.cwd, prompt: reviewPrompt(env, input.intro, input.stat, input.diff, input.tests), readOnly: true, timeoutSec: Math.min(settings.timeoutSec, 900), onLog: ctx.onLog, signal: ctx.signal },
+    env.executors,
+    env.state,
+    (line) => log(`[검토] ${line}`),
+  );
+  const last = attempts.at(-1);
+  return last?.outcome.ok
+    ? { verdict: parseVerdict(last.outcome.summary), text: last.outcome.summary.trim(), sameProvider: !other.length, attempts }
+    : { verdict: "unknown", text: `검토하지 못했어요: ${last?.outcome.errorMessage ?? "쓸 수 있는 모델이 없어요"}`, sameProvider: !other.length, attempts };
+}
+
+/** 결과 댓글의 테스트·검토 줄 */
+export function checkLines(tests: TestRun | null, review: Review | null, ranTests: boolean): string[] {
+  const lines: string[] = [];
+  if (tests) {
+    const desc = {
+      passed: `통과 (\`${tests.command}\`, ${tests.durationSec ?? 0}초)`,
+      failed: `실패 (\`${tests.command}\`)`,
+      unavailable: `테스트 도구가 없어 돌리지 못했어요 (\`${tests.command}\`)`,
+      none: "테스트를 찾지 못했어요",
+    }[tests.status];
+    lines.push(`- 테스트: ${desc}`);
+    if (tests.status === "failed" && tests.output) lines.push("", "```", tests.output.split("\n").slice(-30).join("\n"), "```");
+  } else if (ranTests) {
+    lines.push("- 테스트: 돌리지 않음");
+  }
+  if (review) {
+    const by = review.attempts.at(-1)?.route;
+    const verdict = { ok: "문제 없음", attention: "확인 필요", unknown: "판정 없음" }[review.verdict];
+    lines.push(`- 검토: ${verdict}${by ? ` · ${by.model}${review.sameProvider ? " (다른 회사 모델이 없어 같은 회사 모델로 검토)" : " (구현과 다른 회사 모델)"}` : ""}`);
+    const body = review.text.replace(/^\**판정\s*[:：].*\n?/, "").trim();
+    if (body) lines.push("", ...body.slice(0, 3000).split("\n").map((l) => `> ${l}`));
+  }
+  return lines;
+}
+
+function reviewPrompt(env: ReviewEnv, intro: string, stat: string, diff: string, tests: TestRun | null): string {
   const cut = diff.length > MAX_REVIEW_DIFF;
   const testLine = !tests
     ? "테스트: 돌리지 않음"
@@ -236,7 +281,7 @@ function reviewPrompt(env: PlannedEnv, plan: Plan, stat: string, diff: string, t
     "",
     `이슈: ${env.issue.title}`,
     env.issue.description ? `\n${env.issue.description.slice(0, 3000)}\n` : "",
-    `여러 AI가 하위 작업 ${plan.subtasks.length}개로 나눠 구현한 결과를 하나로 합쳤어요. 당신은 구현에 참여하지 않은 검토자입니다.`,
+    intro,
     "",
     testLine,
     "",

@@ -8,6 +8,8 @@ const st = (key: string, extra: Partial<Subtask> = {}): Subtask => ({ key, title
 describe("shouldPlan", () => {
   it("작은 이슈는 나누지 않고, 할 일 목록이 3개 이상이면 나눈다", () => {
     expect(shouldPlan({ title: "버튼 색 바꾸기", description: "파란색으로" }, policy).plan).toBe(false);
+    expect(shouldPlan({ title: "x", description: "• 하나\n• 둘\n•셋" }, policy).plan).toBe(true);
+    expect(shouldPlan({ title: "x", description: "**굵게**\n---\n-붙임" }, policy).plan).toBe(false);
     expect(shouldPlan({ title: "검색 기능", description: "- API 추가\n- 화면 추가\n- 테스트 작성" }, policy)).toEqual({ plan: true, reason: "할 일 목록 3개" });
     expect(shouldPlan({ title: "x", description: "1. a\n2. b\n3) c" }, policy).plan).toBe(true);
   });

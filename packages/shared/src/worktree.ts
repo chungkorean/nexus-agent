@@ -1,5 +1,6 @@
 import { mkdirSync, readFileSync, rmSync } from "node:fs";
 import path from "node:path";
+import { EXCLUDE_GENERATED } from "./git.ts";
 import { runProcess } from "./process.ts";
 
 /** Nexus가 만드는 커밋의 작성자. 사용자의 git 설정이 없어도 커밋할 수 있게 한다. */
@@ -86,7 +87,7 @@ export async function mergeInto(wt: Worktree, branches: string[]): Promise<{ ok:
 
 /** worktree의 모든 변경을 커밋한다. 바뀐 것이 없으면 null */
 export async function commitAll(wt: Worktree, message: string): Promise<string | null> {
-  await git(wt.dir, ["add", "-A"]);
+  await git(wt.dir, ["add", "-A", "--", ".", ...EXCLUDE_GENERATED]);
   const staged = await git(wt.dir, ["diff", "--cached", "--name-only"]);
   if (!staged) return null;
   await git(wt.dir, ["commit", "-q", "--no-verify", "-m", message]);
@@ -157,7 +158,7 @@ export function filesWithConflictMarkers(dir: string, files: string[]): string[]
 
 /** AI가 충돌을 푼 뒤 합치기 커밋을 마무리한다. */
 export async function concludeMerge(wt: Worktree): Promise<string> {
-  await git(wt.dir, ["add", "-A"]);
+  await git(wt.dir, ["add", "-A", "--", ".", ...EXCLUDE_GENERATED]);
   await git(wt.dir, ["commit", "-q", "--no-verify", "--no-edit"]);
   return git(wt.dir, ["rev-parse", "HEAD"]);
 }

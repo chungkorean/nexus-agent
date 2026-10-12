@@ -20,7 +20,7 @@ export function shouldPlan(input: PlanDecisionInput, policy: PlanningPolicy): { 
   if (labels.some((l) => SPLIT_LABELS.includes(l))) return { plan: true, reason: "나누기 라벨" };
 
   const text = input.description ?? "";
-  const items = text.split(/\r?\n/).filter((l) => /^\s*(?:[-*+]|\d+[.)]|\[[ xX]\])\s+\S/.test(l)).length;
+  const items = text.split(/\r?\n/).filter((l) => /^\s*(?:(?:[-*+]|\d+[.)]|\[[ xX]\])\s+|[•·▪●○◦]\s*)\S/.test(l)).length;
   if (items >= 3) return { plan: true, reason: `할 일 목록 ${items}개` };
   if (text.length >= 600) return { plan: true, reason: "설명이 김" };
   return { plan: false, reason: "작은 이슈" };

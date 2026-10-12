@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
@@ -101,6 +101,35 @@ describe("nexus_dispatch 어댑터", () => {
     expect(comment).toContain("claude-output.txt");
     expect(paperclip.issues.get("NEX-1")!.status).toBe("done"); // 열어 두면 Paperclip이 다시 깨운다
     expect(paperclip.requests.every((r) => r.headers.authorization === "Bearer agent-jwt" && r.headers["x-paperclip-run-id"] === "run-1")).toBe(true);
+  });
+
+  it("한 번에 실행해도 바뀐 결과로 테스트를 돌리고 다른 회사 모델에게 검토받는다", async () => {
+    writeFileSync(path.join(workdir, "README.md"), "hi\n");
+    execFileSync("git", ["-C", workdir, "add", "."]);
+    execFileSync("git", ["-C", workdir, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "init"]);
+    paperclip.issues.set("NEX-1", { id: "NEX-1", title: "목록 화면 버그 수정", companyId: "co-1" });
+    const result = await executeDispatch(ctx(), deps);
+    expect(result.exitCode).toBe(0);
+    const review = readLog(process.env.FAKE_OPENCODE_LOG!).find((c) => c.text.includes("전체 변경 검토 요청"))!;
+    expect(review.model).toEqual({ providerID: "openai", modelID: "gpt-5" });
+    expect(review.text).toContain("+++ b/claude-output.txt");
+    const comment = paperclip.comments[0]!.body;
+    expect(comment).toContain("#### 확인");
+    expect(comment).toContain("- 테스트: 테스트를 찾지 못했어요");
+    expect(comment).toContain("- 검토: 문제 없음 · openai/gpt-5 (구현과 다른 회사 모델)");
+    expect(comment).toContain("| claude-output.txt | 새 파일 |");
+
+    // 테스트가 실패하면 확인 필요, 이슈는 막힘
+    rmSync(path.join(workdir, "claude-output.txt"));
+    writeFileSync(path.join(workdir, "package.json"), JSON.stringify({ scripts: { test: "node -e \"process.exit(1)\"" } }));
+    execFileSync("git", ["-C", workdir, "add", "."]);
+    execFileSync("git", ["-C", workdir, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "pkg"]);
+    paperclip.comments.length = 0;
+    paperclip.issues.set("NEX-1", { id: "NEX-1", title: "목록 화면 버그 수정", companyId: "co-1" });
+    const failedRun = await executeDispatch(ctx(), deps);
+    expect(failedRun.exitCode).toBe(1);
+    expect(paperclip.comments[0]!.body).toContain("### Nexus 실행 결과: 확인 필요");
+    expect(paperclip.issues.get("NEX-1")!.status).toBe("blocked");
   });
 
   it("조사 작업은 OpenCode의 긴 문맥 모델로 보낸다", async () => {

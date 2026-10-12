@@ -63,3 +63,11 @@ describe("취합 규칙", () => {
     expect(topoOrder({ summary: "", subtasks: [s("test", ["impl"]), s("docs", ["impl"]), s("impl")] }).map((x) => x.key)).toEqual(["impl", "test", "docs"]);
   });
 });
+
+describe("저절로 생기는 파일", () => {
+  it("파이썬 캐시는 바뀐 파일에서 뺀다", async () => {
+    const { diffSnapshots } = await import("@nexus/shared");
+    const after = new Map([["hello.py", "??"], ["__pycache__/hello.cpython-310.pyc", "??"], ["tests/__pycache__/x.pyc", "??"], [".pytest_cache/v/cache", "??"]]);
+    expect(diffSnapshots(new Map(), after).map((f) => f.file)).toEqual(["hello.py"]);
+  });
+});
