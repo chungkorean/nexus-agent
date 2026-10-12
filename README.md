@@ -61,7 +61,9 @@ pnpm build
 
 ### 3. Paperclip에 어댑터 설치
 
-Paperclip 화면의 Adapter Manager에서 로컬 경로로 설치하거나, API로 설치합니다.
+트레이 실행기(`Nexus.exe`)로 켜면 Nexus가 Paperclip이 켜지기를 기다렸다가 어댑터를 저절로 설치합니다(Paperclip을 혼자 쓰는 PC의 기본 모드일 때). 새로 빌드한 뒤 다시 켜면 Paperclip에 새 어댑터를 다시 불러오게 합니다. 결과는 Paperclip 탭에 알림으로 나오고, Paperclip이 로그인을 요구하는 모드라 저절로 설치하지 못했을 때만 아래처럼 직접 설치하세요.
+
+직접 설치하려면 Paperclip 화면의 Adapter Manager에서 로컬 경로로 설치하거나, API로 설치합니다.
 
 ```powershell
 $body = @{ packageName = "C:\경로\nexus-agent\packages\paperclip-adapter"; isLocalPath = $true } | ConvertTo-Json

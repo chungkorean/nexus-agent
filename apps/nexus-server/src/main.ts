@@ -15,6 +15,13 @@ function bundledConfigDir(): string | undefined {
   return undefined;
 }
 
+/** packages/paperclip-adapter 폴더 (src/main.ts와 dist/main.mjs 모두 세 단계 위가 저장소) */
+function adapterDir(): string | undefined {
+  if (process.env.NEXUS_NO_ADAPTER_SYNC === "1") return undefined;
+  const dir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "packages", "paperclip-adapter");
+  return existsSync(path.join(dir, "package.json")) ? dir : undefined;
+}
+
 function openBrowser(url: string): void {
   if (process.platform !== "win32" || process.env.NEXUS_NO_BROWSER === "1") return;
   try {
@@ -36,6 +43,8 @@ try {
     accountsDir: defaultAccountsDir(),
     port,
     telegram: {},
+    // 저장소에서 돌릴 때만(빌드 결과 옆에 어댑터 폴더가 있을 때) Paperclip에 어댑터를 저절로 설치한다.
+    adapterDir: adapterDir(),
   });
   const url = await settings.listen();
   console.log("");

@@ -59,6 +59,8 @@ async function start() {
     timer = setTimeout(start, 8000);
     return;
   }
+  // Nexus 어댑터를 저절로 설치하지 못했으면 알려 준다.
+  if (info.adapter && info.adapter.state === "failed") toast(info.adapter.message, "bad");
   wrap.replaceChildren(h("iframe", { src: target(base), title: "Paperclip", allow: "clipboard-read; clipboard-write" }));
 }
 start();

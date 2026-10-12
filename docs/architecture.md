@@ -140,3 +140,4 @@
 - 어댑터는 `@paperclipai/adapter-utils`를 런타임에 불러오지 않습니다. 필요한 타입만 `adapter-types.ts`에 옮겼고, 빌드할 때 의존성을 모두 묶어 Paperclip이 패키지 설치 없이 불러올 수 있게 했습니다.
 - Google 계정(Gemini 구독)은 세 번째 엔진 `antigravity`로 붙였습니다. Gemini CLI가 2026년 6월에 개인 계정 지원을 끝내고 Antigravity CLI로 바뀌었고어서 공식 CLI를 직접 부릅니다. 지시문은 표준 입력 대신 인수로 넘기고(헤드리스 모드가 인수만 받음), 20,000자가 넘으면 작업 폴더 밖 임시 파일에 두고 그 경로를 넘깁니다. 읽기 전용 실행은 `--dangerously-skip-permissions`를 빼서 agy가 도구 승인을 거절하게 합니다.
 - Meta Muse는 별도 엔진 없이 OpenCode 공급자(`meta`)로 씁니다. Meta Model API가 OpenAI 호환이라 OpenCode로 충분하고, Muse Code 구독 CLI는 Windows용과 자동 실행 방법이 없습니다.
+- Paperclip 어댑터 설치는 설정 서버(`apps/nexus-server/src/adapter-sync.ts`)가 맡습니다. 켜질 때 `GET /api/adapters`에 `nexus_dispatch`가 없으면 `POST /api/adapters/install`(로컬 경로)로 설치하고, 지난번과 빌드 커밋이 다르면 `POST /api/adapters/nexus_dispatch/reload`를 부릅니다. Paperclip이 늦게 켜질 수 있어 30초마다 최대 40번 다시 해 봅니다. local_trusted 모드에서는 같은 PC의 요청이 관리자 권한을 받으므로 따로 로그인하지 않습니다. 끄려면 `NEXUS_NO_ADAPTER_SYNC=1`.

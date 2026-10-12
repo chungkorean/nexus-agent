@@ -29,6 +29,7 @@ import { newPairingCode, TelegramBot } from "./telegram-bot.ts";
 import { AssistantError, type AssistantDeps } from "./assistant.ts";
 import { HttpError } from "./errors.ts";
 import { createExtras } from "./extras.ts";
+import { createAdapterSync } from "./adapter-sync.ts";
 import { createPaperclipView } from "./paperclip-view.ts";
 import { findWhisper, readVoiceSettings, transcribe, ToolInstaller, VoiceError } from "./voice.ts";
 import { USAGE_PERIODS, usageReport, type UsagePeriod } from "./usage.ts";
@@ -74,6 +75,8 @@ export interface SettingsServerOptions {
   scriptsDir?: string;
   /** Paperclip 한국어 보기(중계) 번호. 기본은 port+1, port가 0이면 0 */
   paperclipViewPort?: number;
+  /** packages/paperclip-adapter 폴더. 주면 Paperclip에 Nexus 어댑터를 저절로 설치하고 새 빌드를 다시 불러오게 한다. */
+  adapterDir?: string;
   /** 텔레그램 봇을 함께 돌린다. 생략하면 돌리지 않는다(테스트). */
   telegram?: { paperclipUrl?: string; apiBase?: string; pollSeconds?: number };
 }
@@ -164,6 +167,7 @@ export function createSettingsServer(opts: SettingsServerOptions): SettingsServe
   const scriptsDir = opts.scriptsDir ?? path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "scripts", "windows");
   const installer = new ToolInstaller(scriptsDir);
   const assistantDeps = (): AssistantDeps => ({ stateDir: opts.stateDir, paperclipUrl, usageText, todayCost });
+  const adapterSync = opts.adapterDir ? createAdapterSync({ paperclipUrl, adapterDir: opts.adapterDir, stateDir: opts.stateDir, build: readBuild() }) : null;
   const extras = createExtras({
     stateDir: opts.stateDir,
     paperclipUrl,
@@ -173,6 +177,7 @@ export function createSettingsServer(opts: SettingsServerOptions): SettingsServe
     targets: (companyId) => paperclipTargets(companyId),
     build: readBuild(),
     viewUrl: () => viewUrl,
+    adapterStatus: () => adapterSync?.status() ?? null,
   });
 
   function todayCost(): number {
@@ -712,6 +717,7 @@ export function createSettingsServer(opts: SettingsServerOptions): SettingsServe
           const { port } = server.address() as AddressInfo;
           allowedHosts = new Set([`127.0.0.1:${port}`, `localhost:${port}`]);
           bot?.start();
+          adapterSync?.start();
           void view.listen().then((u) => {
             viewUrl = u;
             resolve(`http://127.0.0.1:${port}/`);
@@ -721,6 +727,7 @@ export function createSettingsServer(opts: SettingsServerOptions): SettingsServe
     },
     async close() {
       await bot?.stop();
+      adapterSync?.stop();
       await view.close();
       return new Promise<void>((resolve) => {
         server.closeAllConnections?.();
