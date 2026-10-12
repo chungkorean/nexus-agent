@@ -25,7 +25,8 @@ Paperclip의 "개발 부서" 에이전트에 이슈가 배정되면, Nexus가 �
 - **텔레그램** (4단계): 휴대폰 텔레그램으로 할 일을 보내면 Paperclip 이슈로 등록하고, 작업이 끝나면 결과를 알려 줍니다. 알림에 답장하면 그 이슈에 댓글로 남기고 다시 맡깁니다. 공개 주소 없이 집 PC에서 동작합니다.
 - **스튜디오** (5단계): 끝난 작업마다 결과, 원래 요청, AI가 만든 그림·오디오·영상을 보관함에 모아 한 화면에서 봅니다. 지난 작업을 골라 "이어서 맡기기"를 누르면 그 이슈에 댓글로 남기고 다시 맡깁니다.
 - **음성 비서** (5단계): 이 PC의 Whisper(whisper.cpp)로 말을 글로 바꿔, 할 일은 Paperclip 이슈로 등록하고 "진행 상황 알려 줘"에는 진행 중인 일과 오늘 끝낸 일을 소리로 알려 줍니다. 호출어("넥서스")를 켜 두면 부를 때만 듣습니다. 텔레그램 음성 메시지도 글로 바꿔 받습니다.
-- **Nexus 앱 창** (5단계): 트레이 아이콘을 두 번 누르거나 바탕 화면 바로 가기를 누르면 Edge(없으면 Chrome)의 앱 모드로 주소창 없는 Nexus 창이 열립니다. 위쪽 메뉴로 스튜디오, 음성 비서, 설정, Paperclip을 오갑니다.
+- **실행 파일 `Nexus.exe`**: 저장소 맨 위의 `Nexus.exe`를 두 번 누르면 처음에는 설치와 빌드를 해 주고, 그다음부터는 Nexus를 켜고 앱 창을 엽니다.
+- **Nexus 앱 창** (5단계): `Nexus.exe`나 트레이 아이콘을 두 번 누르거나 바탕 화면 바로 가기를 누르면 Edge(없으면 Chrome)의 앱 모드로 주소창 없는 Nexus 창이 열립니다. 위쪽 메뉴로 스튜디오, 음성 비서, 설정, Paperclip을 오갑니다.
 - **GitHub 연동** (선택, 기본 꺼짐): 켜면 결과 브랜치를 작업 폴더의 원격 저장소에 올리고, 원하면 GitHub CLI(`gh`)로 초안 풀 리퀘스트를 만듭니다. 작업 폴더의 git 로그인 정보와 `gh auth login`을 그대로 씁니다.
 
 ## Windows에 설치하기
@@ -100,7 +101,12 @@ Invoke-RestMethod -Method Post -Uri http://localhost:3100/api/adapters/install -
 
 ### 6. 트레이 실행기로 켜 두기
 
-매번 PowerShell 창을 열어 두는 대신 `scripts\nexus-tray.cmd`를 두 번 누르세요.
+매번 PowerShell 창을 열어 두는 대신 저장소 맨 위의 `Nexus.exe`를 두 번 누르세요(`scripts\nexus-tray.cmd`도 같은 트레이 실행기를 켭니다).
+
+- `Nexus.exe`는 처음 실행할 때 Node.js가 있는지 보고, 의존성 설치나 어댑터 빌드가 안 돼 있으면 "지금 준비할까요?"라고 묻습니다. "예"를 누르면 검은 창에서 `pnpm install`과 `pnpm build`를 하고 끝나면 Nexus를 켭니다.
+- 서명하지 않은 실행 파일이라 처음에 "Windows의 PC 보호" 창이 뜰 수 있습니다. "추가 정보"를 누른 뒤 "실행"을 누르세요.
+- `Nexus.exe`는 저장소 폴더 안에 두어야 합니다. 다른 곳에서 쓰려면 바탕 화면 바로 가기를 만드세요(아래 메뉴).
+- 직접 다시 만들려면 Go 1.22 이상을 설치하고 `pnpm build:exe`를 실행하세요.
 
 - Paperclip(`npx paperclipai@latest run`)과 설정 화면이 창 없이 켜집니다. 이미 켜져 있으면 그대로 씁니다.
 - 작업 표시줄 오른쪽 아래 N 아이콘: 파란색은 모두 켜짐, 갈색은 켜는 중, 빨간색은 계속 멈춤입니다.
@@ -159,6 +165,7 @@ packages/
   paperclip-adapter/      Paperclip 외부 어댑터 nexus_dispatch (빌드 결과가 dist/)
 apps/
   nexus-server/           설정 화면, 스튜디오, 음성 비서, 텔레그램 봇 (127.0.0.1:3200)
+  launcher/               Nexus.exe 소스 (Go, 트레이 실행기를 창 없이 띄움)
 config/                   기본 models.yaml, routing.yaml, accounts.yaml
 scripts/                  어댑터 빌드, Windows 환경 점검, 트레이 실행기, Whisper 설치
 tests/                    가짜 Paperclip·OpenCode·Claude Code로 돌리는 테스트

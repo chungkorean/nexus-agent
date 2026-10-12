@@ -10,6 +10,7 @@
   "packageManager": "pnpm@10.28.0",
   "scripts": {
     "build": "node scripts/build-adapter.mjs",
+    "build:exe": "node scripts/build-exe.mjs",
     "settings": "node scripts/build-settings.mjs && node apps/nexus-server/dist/main.mjs",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit"

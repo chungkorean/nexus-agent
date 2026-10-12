@@ -134,8 +134,15 @@ function Notify($title, $text, $kind = "Info") {
 function New-Shortcut($path, [switch]$App) {
   $shell = New-Object -ComObject WScript.Shell
   $lnk = $shell.CreateShortcut($path)
-  $lnk.TargetPath = Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe"
-  $lnk.Arguments = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$PSCommandPath`"" + $(if ($App) { " -OpenApp" } else { "" })
+  $exe = Join-Path $Repo "Nexus.exe"
+  if ($App -and (Test-Path $exe)) {
+    # Nexus.exe가 있으면 아이콘이 붙은 실행 파일로 바로 가기를 만든다.
+    $lnk.TargetPath = $exe
+    $lnk.IconLocation = "$exe,0"
+  } else {
+    $lnk.TargetPath = Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe"
+    $lnk.Arguments = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$PSCommandPath`"" + $(if ($App) { " -OpenApp" } else { "" })
+  }
   $lnk.WorkingDirectory = $Repo
   $lnk.Description = if ($App) { "Nexus 앱: 스튜디오와 음성 비서를 엽니다 (꺼져 있으면 켭니다)" } else { "Nexus: Paperclip과 설정 화면을 켜 둡니다" }
   $lnk.Save()

@@ -121,6 +121,13 @@
 - `nexus-tray.ps1 -OpenApp`(바탕 화면 바로 가기, `scripts\nexus-app.cmd`)은 이미 켜져 있으면 창만 열고, 꺼져 있으면 모두 켠 뒤 창을 엽니다.
 - 화면들은 `public/base.css`와 `public/common.js`(작은 도우미, 위쪽 메뉴)를 함께 씁니다.
 
+### 실행 파일 (Nexus.exe)
+
+- `apps/launcher`의 작은 Go 프로그램(1.6MB, 외부 의존성 없음)입니다. 일은 트레이 실행기가 하고, 런처는 준비 상태만 확인합니다.
+- 실행 파일이 있는 폴더부터 네 단계 위까지 `scripts\windows\nexus-tray.ps1`을 찾아 저장소를 정합니다. 그다음 `node`가 PATH에 있는지, `node_modules`와 어댑터 `dist`가 있는지 확인하고, 없으면 물어본 뒤 새 콘솔에서 `pnpm install`과 `pnpm build`를 합니다.
+- 마지막으로 `powershell -WindowStyle Hidden -File nexus-tray.ps1 -OpenApp`을 창 없이 띄웁니다. 그래서 이미 켜져 있으면 앱 창만 열립니다.
+- 아이콘과 매니페스트(DPI 인식, UTF-8)는 `rsrc_windows_amd64.syso`로 저장소에 들어 있어 Go만 있으면 `pnpm build:exe`로 다시 만들 수 있습니다. 트레이의 바탕 화면 바로 가기는 `Nexus.exe`가 있으면 그것을 가리킵니다.
+
 ## 바뀐 설계 결정
 
 - `apps/nexus-server`는 사람이 보는 화면(설정, 스튜디오, 음성 비서)과 텔레그램 봇만 맡습니다. 병렬 실행 관리는 별도 서버 없이 어댑터 안에서 합니다. Paperclip이 에이전트당 실행을 하나씩 관리하므로 그 실행 안에서 하위 작업을 동시에 돌리는 편이 단순합니다.
