@@ -42,7 +42,7 @@ export interface SettingsChanges {
   /** 작업 종류별 1순위·2순위 별칭. second가 null이면 2순위 없음 */
   taskTypes?: Partial<Record<TaskType, { first: string; second: string | null }>>;
   /** 별칭별 표시 이름·모델 ID·사용할 계정 목록 (빈 배열이면 평소 로그인 계정) */
-  aliases?: Record<string, { label?: string; model?: string; accounts?: string[] }>;
+  aliases?: Record<string, { label?: string; engine?: Engine; model?: string; accounts?: string[] }>;
   /** 새로 추가할 모델(별칭). 이름은 영문 */
   newAliases?: Record<string, { engine: Engine; model: string; label?: string; accounts?: string[] }>;
   /** 지울 모델(별칭). 작업 순서에서도 빠진다 */
@@ -279,6 +279,22 @@ export function applyChanges(
             dirty.add("models");
             aliasSentences.push(`AI 모델 이름: ${oldLabel} → ${v}`);
           }
+        }
+        // 모델 바꾸기로 다른 종류(예: OpenCode → Google 계정)의 모델을 고르면 엔진도 바뀐다.
+        let engine = alias.engine;
+        if (c.engine !== undefined && c.engine !== alias.engine) {
+          if (c.engine !== "claude-code" && c.engine !== "opencode" && c.engine !== "antigravity") {
+            problems.push(`${label(name)}: 모델 종류를 알 수 없어요.`);
+            continue;
+          }
+          engine = c.engine;
+          setScalar(models, ["aliases", name, "engine"], engine);
+          dirty.add("models");
+        }
+        const nextModel = typeof c.model === "string" ? c.model.trim() : alias.model;
+        if (nextModel && (engine === "opencode") !== nextModel.includes("/")) {
+          problems.push(`${label(name)}: 모델 ID(${nextModel})가 모델 종류와 맞지 않아요.`);
+          continue;
         }
         if (c.model !== undefined) {
           const v = typeof c.model === "string" ? c.model.trim() : "";

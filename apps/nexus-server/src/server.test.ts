@@ -551,6 +551,15 @@ describe("settings server", () => {
     expect(parse(read("models.yaml")).aliases["gemini-pro"]).toMatchObject({ engine: "antigravity", model: "gemini-3.1-pro-high" });
   });
 
+  it("switches a model to another kind (OpenCode → Google 계정) with 모델 바꾸기", async () => {
+    await start();
+    const bad = await post("/api/save", { aliases: { longctx: { engine: "antigravity", model: "google/gemini-3.8-flash" } } });
+    expect(bad.status).toBe(400);
+    const ok = await post("/api/save", { aliases: { longctx: { engine: "antigravity", model: "gemini-3.8-flash-high", accounts: [] } } });
+    expect(ok.status).toBe(200);
+    expect(parse(read("models.yaml")).aliases.longctx).toMatchObject({ engine: "antigravity", model: "gemini-3.8-flash-high" });
+  });
+
   it("reports a broken config file in Korean", async () => {
     writeConfig(configDir, { routing: "taskTypes: [oops\n" });
     await start({ fillUser: false });

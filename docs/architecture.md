@@ -82,7 +82,7 @@
 - 설정 화면 `GET /api/models`가 고를 수 있는 모델을 돌려줍니다(`packages/shared/src/catalog.ts`). Claude Code는 목록 명령이 없어서 `CLAUDE_MODELS`에 직접 두고, OpenCode는 평소 로그인과 OpenCode 계정 폴더(`XDG_DATA_HOME`)마다 `opencode models --verbose`를 돌려 이름·문맥 길이·비용을 읽습니다. 사라질 예정(deprecated)인 모델은 뺍니다.
 - Google 계정(Antigravity) 계정이 있으면 `agy models`의 "slug  표시 이름" 줄을 읽어 `antigravity` 공급자로 넣습니다. 읽지 못하면 `ANTIGRAVITY_MODELS` 기본 목록을 보여 줍니다. Windows에서 `agy`가 PATH에 없으면 `%LOCALAPPDATA%\agy\bin\agy.exe`를 씁니다(설치 전에 켠 프로그램은 새 PATH를 모름).
 - 결과는 `state/models-cache.json`에 캐시하고, `?refresh=1`이면 다시 읽습니다. 동시에 여러 번 요청해도 한 번만 돌립니다.
-- 화면에서 목록의 모델을 고르면 `models.yaml`에 별칭을 만듭니다(`newAliases`). 엔진은 ID에 `/`가 있으면 OpenCode, 목록에서 고른 Google 계정 모델은 Antigravity, 그 밖에는 Claude Code입니다. 별칭을 지우면(`removeAliases`) 작업 순서에서도 빼고, 어떤 작업의 순서가 비거나 위험 작업·작업 나누기 담당이면 저장을 막습니다.
+- 화면에서 목록의 모델을 고르면 `models.yaml`에 별칭을 만듭니다(`newAliases`). 엔진은 ID에 `/`가 있으면 OpenCode, 목록에서 고른 Google 계정 모델은 Antigravity, 그 밖에는 Claude Code입니다. 모델 카드의 "모델 바꾸기"로 다른 종류의 모델을 고르면 엔진도 함께 바꾸고(`aliases.<이름>.engine`), 회사가 바뀌면 계정 체크와 보여 줄 이름을 새 모델에 맞춥니다. 고르기 창은 화면에 고정(`position: fixed`)해 띄워 페이지 길이를 바꾸지 않고, 아래 자리가 모자라면 위로 엽니다. 별칭을 지우면(`removeAliases`) 작업 순서에서도 빼고, 어떤 작업의 순서가 비거나 위험 작업·작업 나누기 담당이면 저장을 막습니다.
 
 ### 트레이 실행기
 

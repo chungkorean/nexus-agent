@@ -305,7 +305,8 @@ function buildChanges() {
     const o = orig.aliases[name];
     const d = {};
     if (a.label.trim() !== o.label) d.label = a.label.trim();
-    if (a.model.trim() !== o.model) d.model = a.model.trim();
+    if (a.engine !== o.engine) d.engine = a.engine;
+    if (a.model.trim() !== o.model || d.engine) d.model = a.model.trim();
     if (a.accounts.join("\n") !== o.accounts.join("\n")) d.accounts = a.accounts.slice();
     if (Object.keys(d).length) (c.aliases = c.aliases || {})[name] = d;
   }
@@ -398,6 +399,9 @@ function modelSub(a) {
   return providerName(providerOf(a)) + " · " + a.model;
 }
 
+/** '무료' 표시 설명: OpenCode 목록에 가격이 0으로 적힌 모델 */
+const FREE_NOTE = "OpenCode 모델 목록에 가격이 0원으로 적혀 있는 모델이에요. OpenCode Zen이 기간 한정으로 무료로 여는 모델(무료 기간에는 보낸 내용이 모델 개선에 쓰일 수 있음), 내 컴퓨터에서 도는 Ollama 모델, 이미 낸 구독에 포함된 모델(GitHub Copilot 등)이 여기에 해당해요.";
+
 function closePop() { if (openPop) { const f = openPop; openPop = null; f(); } }
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") closePop(); });
 document.addEventListener("mousedown", (e) => { if (openPop && !e.target.closest(".picker")) closePop(); });
@@ -423,8 +427,32 @@ function modelPicker(opts) {
     box.append(main, side);
     if (wrap.getBoundingClientRect().left > window.innerWidth / 2) box.classList.add("right");
     wrap.append(box);
-    openPop = () => box.remove();
     const narrow = () => window.matchMedia("(max-width: 640px)").matches;
+    // 창을 화면에 고정해 띄운다. 페이지 맨 아래에서 열어도 페이지 길이가 바뀌지 않아,
+    // 옆 창 내용이 바뀔 때 화면이 튀며 다른 회사에 마우스가 걸려 창이 떨리는 일이 없다.
+    // 아래 자리가 모자라면 버튼 위쪽으로 연다.
+    let up = false;
+    function place() {
+      if (narrow()) { box.removeAttribute("style"); main.style.maxHeight = side.style.maxHeight = ""; return; }
+      const r = wrap.getBoundingClientRect();
+      const barH = $("bar") ? $("bar").offsetHeight : 0;
+      const navH = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--nav-h")) || 0;
+      const below = window.innerHeight - barH - r.bottom - 12;
+      const above = r.top - navH - 12;
+      up = below < 320 && above > below;
+      const room = Math.max(160, Math.min(520, up ? above : below));
+      main.style.maxHeight = side.style.maxHeight = room + "px";
+      box.style.position = "fixed";
+      box.style.alignItems = up ? "flex-end" : "flex-start";
+      if (box.classList.contains("right")) { box.style.right = (document.documentElement.clientWidth - r.right) + "px"; box.style.left = "auto"; }
+      else box.style.left = r.left + "px";
+      if (up) { box.style.top = "auto"; box.style.bottom = (window.innerHeight - r.top + 6) + "px"; }
+      else { box.style.bottom = "auto"; box.style.top = (r.bottom + 6) + "px"; }
+    }
+    const onMove = () => { if (box.isConnected) place(); };
+    window.addEventListener("scroll", onMove, { passive: true });
+    window.addEventListener("resize", onMove);
+    openPop = () => { box.remove(); window.removeEventListener("scroll", onMove); window.removeEventListener("resize", onMove); };
     const pickAlias = (name) => { closePop(); opts.onPick(name); };
     const pickModel = (m) => { closePop(); if (opts.onPickModel) opts.onPickModel(m); else opts.onPick(ensureAlias(m)); };
     // 지금 고른 모델(엔진 + ID)
@@ -504,7 +532,7 @@ function modelPicker(opts) {
       const sub = [m.id, m.context ? Math.round(m.context / 1000) + "K 문맥" : "", m.cost && !free ? "$" + m.cost.input + " / $" + m.cost.output : ""].filter(Boolean).join(" · ");
       return h("button", { type: "button", class: "pop-item", onclick: () => (m.alias && !opts.onPickModel ? pickAlias(m.alias) : pickModel(m)) },
         h("span", { class: "pi-check" }, m.engine + " " + m.id === curKey ? "✓" : ""),
-        h("span", { class: "pi-text" }, m.name, free ? h("span", { class: "tag-free" }, "무료") : null, h("span", { class: "pi-sub" }, sub)));
+        h("span", { class: "pi-text" }, m.name, free ? h("span", { class: "tag-free", title: FREE_NOTE }, "무료") : null, h("span", { class: "pi-sub" }, sub)));
     }
 
     function openSide(key, focus, children) {
@@ -518,7 +546,7 @@ function modelPicker(opts) {
         // 고른 회사 줄 높이에 맞춰 옆 창을 띄운다(화면 밖으로 나가지 않게).
         const row = [...main.querySelectorAll(".prov")].find((r) => r.dataset.key === key);
         side.style.marginTop = "0px";
-        if (row) {
+        if (row && !up) {
           const want = row.getBoundingClientRect().top - main.getBoundingClientRect().top - 6;
           const room = window.innerHeight - ($("bar") ? $("bar").offsetHeight : 0) - main.getBoundingClientRect().top - side.offsetHeight - 12;
           side.style.marginTop = Math.max(0, Math.min(want, room)) + "px";
@@ -553,6 +581,7 @@ function modelPicker(opts) {
     }
 
     drawMain();
+    place();
     // 지금 고른 모델의 회사를 처음부터 펼쳐 둔다.
     if (cur && !narrow()) showProvider(providerOf(cur), false);
   });
@@ -947,7 +976,8 @@ function renderModels() {
     // 이 모델 회사의 계정만 먼저 보여 준다. 다른 회사 계정은 접어 둔다(이미 고른 것은 그대로 보임).
     // '그 밖의 서비스'로 등록한 계정은 이름에 회사 이름(예: Xiaomi_MiMo_pro)이 있으면 그 회사 계정으로 본다.
     const nameHit = (acc) => acc.provider === "opencode" && [prov, providerName(prov).split(/[ (]/)[0]].some((w) => w && (acc.id + " " + acc.label).toLowerCase().includes(w.toLowerCase()));
-    const mine = same.filter((acc) => d.engine !== "opencode" || acc.provider === prov || nameHit(acc) || d.accounts.includes(acc.id));
+    // '그 밖의 서비스'(provider opencode)로 등록한 계정은 OpenCode Zen 계정으로 보지 않는다(이름에 회사가 있을 때만).
+    const mine = same.filter((acc) => d.engine !== "opencode" || (acc.provider === prov && prov !== "opencode") || nameHit(acc) || d.accounts.includes(acc.id));
     const others = same.filter((acc) => !mine.includes(acc));
     const checkRow = (acc) => {
       const idx = d.accounts.indexOf(acc.id);
@@ -976,10 +1006,16 @@ function renderModels() {
       h("div", { class: "field", style: "margin-top:10px" }, h("span", {}, "쓸 계정"), checks,
         same.length ? h("span", { class: "small" }, "아무것도 고르지 않으면 평소 로그인한 계정을 써요. 여러 개 고르면 고른 순서대로 쓰고, 한도에 걸리면 다음 계정으로 넘어가요.") : null),
       h("div", { class: "model-actions" },
-        modelPicker({ button: changeBtn, current: d.engine + " " + d.model, engine: d.engine, label: "모델 바꾸기", onPickModel: (m) => {
+        modelPicker({ button: changeBtn, current: d.engine + " " + d.model, label: "모델 바꾸기", onPickModel: (m) => {
           const auto = !d.label.trim() || d.label === d.model || (C && C.models.some((x) => x.name === d.label));
+          // 다른 회사·종류의 모델로 바꾸면 이전 회사 계정 체크는 풀고, 새 모델을 쓸 수 있는 계정을 고른다.
+          const before = providerOf(d);
+          d.engine = m.engine;
           d.model = m.id;
-          if (auto || d.isNew) d.label = m.name;
+          const moved = providerOf(d) !== before;
+          if (moved) d.accounts = (m.accounts || []).filter((id) => S.accounts.some((acc) => acc.id === id)).slice(0, 1);
+          // 회사가 바뀌면 이전 이름(예: GPT)이 틀리므로 새 모델 이름으로 바꾼다.
+          if (auto || d.isNew || moved) d.label = m.name;
           rerender();
         } }),
         h("button", { type: "button", class: "small-btn danger", onclick: () => removeModel(a.name) }, "삭제")))];
