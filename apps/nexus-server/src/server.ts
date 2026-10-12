@@ -1,5 +1,5 @@
 // 쉬운 설정 화면용 로컬 웹 서버. 127.0.0.1에서만 열고, 사용자 설정 폴더의 YAML을 고친다.
-import { existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import path from "node:path";
@@ -8,6 +8,8 @@ import { PaperclipClient } from "@nexus/paperclip-client";
 import {
   AccountState,
   accountHasLogin,
+  ANTIGRAVITY_LOGIN_MARK,
+  defaultProvider,
   ConfigError,
   CLAUDE_MODELS,
   discoverModels,
@@ -62,6 +64,8 @@ export interface SettingsServerOptions {
   publicDir?: string;
   /** 모델 목록을 읽을 OpenCode 명령. 기본 "opencode" */
   opencodeCommand?: CommandSpec;
+  /** Google 계정 모델 목록을 읽을 Antigravity CLI 명령. 기본 "agy" */
+  agyCommand?: CommandSpec;
   /** 시험용: Whisper 대신 쓸 명령 */
   whisperCommand?: CommandSpec;
   /** 시험용: SenseVoice(sherpa-onnx-offline) 대신 쓸 명령 */
@@ -85,7 +89,7 @@ const AUDIO_LIMIT = 20 * 1024 * 1024;
 /** 확장자 없이 여는 화면 */
 const PAGES: Record<string, string> = { "/studio": "/studio.html", "/voice": "/voice.html", "/paperclip": "/paperclip.html" };
 const ACCOUNT_ID = /^[a-z0-9][a-z0-9_-]{0,39}$/i;
-const ENGINES: Engine[] = ["claude-code", "opencode"];
+const ENGINES: Engine[] = ["claude-code", "opencode", "antigravity"];
 
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -157,7 +161,8 @@ export function createSettingsServer(opts: SettingsServerOptions): SettingsServe
         },
       })
     : null;
-  const installer = new ToolInstaller(opts.scriptsDir ?? path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "scripts", "windows"));
+  const scriptsDir = opts.scriptsDir ?? path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "scripts", "windows");
+  const installer = new ToolInstaller(scriptsDir);
   const assistantDeps = (): AssistantDeps => ({ stateDir: opts.stateDir, paperclipUrl, usageText, todayCost });
   const extras = createExtras({
     stateDir: opts.stateDir,
@@ -236,7 +241,7 @@ export function createSettingsServer(opts: SettingsServerOptions): SettingsServe
     const { config } = loadValid();
     let catalog = refresh ? null : readModelCatalogCache(opts.stateDir);
     if (!catalog) {
-      discovering ??= discoverModels({ stateDir: opts.stateDir, accounts: Object.values(config.accounts), opencodeCommand: opts.opencodeCommand }).finally(() => {
+      discovering ??= discoverModels({ stateDir: opts.stateDir, accounts: Object.values(config.accounts), opencodeCommand: opts.opencodeCommand, agyCommand: opts.agyCommand }).finally(() => {
         discovering = null;
       });
       catalog = await discovering;
@@ -360,7 +365,11 @@ export function createSettingsServer(opts: SettingsServerOptions): SettingsServe
       if (Object.keys(config.accounts).some((k) => k.toLowerCase() === id.toLowerCase())) {
         throw new HttpError(409, "같은 이름의 계정이 이미 있어요. 다른 이름을 지어 주세요.");
       }
-      const provider = typeof body.provider === "string" && /^[a-z0-9._-]{1,40}$/i.test(body.provider.trim()) ? body.provider.trim() : engine === "claude-code" ? "anthropic" : "opencode";
+      if (engine === "antigravity") {
+        const other = Object.values(config.accounts).find((a) => a.engine === "antigravity");
+        if (other) throw new HttpError(409, `Google 계정(Antigravity)은 하나만 쓸 수 있어요. 이미 '${other.label}' 계정이 있어요. Antigravity CLI가 로그인 정보를 Windows 자격 증명 관리자에 하나만 저장하기 때문이에요.`);
+      }
+      const provider = engine === "antigravity" ? "antigravity" : typeof body.provider === "string" && /^[a-z0-9._-]{1,40}$/i.test(body.provider.trim()) ? body.provider.trim() : defaultProvider(engine);
       const labelRaw = typeof body.label === "string" ? body.label.trim() : "";
       if (labelRaw.length > 80) throw new HttpError(400, "보여 줄 이름은 80자 안으로 적어 주세요.");
       addAccountToDoc(loaded.docs.accounts, id, { engine, provider, label: labelRaw || id });
@@ -392,8 +401,19 @@ export function createSettingsServer(opts: SettingsServerOptions): SettingsServe
       const { config } = loadValid();
       const account = findAccount(config, body);
       mkdirSync(account.dir, { recursive: true });
-      const cmd = buildLoginCommand(account);
+      const cmd = buildLoginCommand(account, { antigravityScript: path.join(scriptsDir, "antigravity-login.cmd") });
       const result = await launcher(cmd);
+      if (account.engine === "antigravity") {
+        // 로그인 정보는 파일로 확인할 수 없어서, 로그인 창을 연 것을 표시해 둔다.
+        writeFileSync(path.join(account.dir, ANTIGRAVITY_LOGIN_MARK), new Date().toISOString());
+        if (result.launched) return { ok: true, launched: true, message: "새 창이 열렸어요. Antigravity CLI가 없으면 먼저 설치하고, 브라우저가 열리면 Gemini를 구독한 Google 계정으로 로그인해 주세요. 끝나면 창을 닫고 'AI 모델' 칸에서 목록 새로 고침을 눌러 주세요." };
+        return {
+          ok: true,
+          launched: false,
+          commandText: result.commandText,
+          message: "로그인 창을 자동으로 열지 못했어요. Antigravity CLI를 설치한 뒤(https://antigravity.google/docs/cli/install) 아래 명령을 터미널에서 실행하고, 브라우저에서 Google 계정으로 로그인해 주세요.",
+        };
+      }
       if (result.launched) {
         const message =
           account.engine === "claude-code"

@@ -2,7 +2,17 @@ import type { PaperclipClient } from "@nexus/paperclip-client";
 import { archiveRun, notifyTelegram, type AccountState, type ArchiveInput, type Engine, type Executor, type Route, type RunOutcome, type RunRequest, type UsageEntry, type UsageSummary } from "@nexus/shared";
 import type { PaperclipIssue } from "@nexus/paperclip-client";
 
-export const ENGINE_LABEL: Record<Engine, string> = { opencode: "OpenCode", "claude-code": "Claude Code" };
+export const ENGINE_LABEL: Record<Engine, string> = { opencode: "OpenCode", "claude-code": "Claude Code", antigravity: "Antigravity CLI" };
+
+/** 구독 계정으로 도는 엔진(사용량이 비용 대신 구독 한도로 잡힌다) */
+export function isSubscription(engine: Engine): boolean {
+  return engine === "claude-code" || engine === "antigravity";
+}
+
+/** 실행 경로의 공급자: Claude 구독은 anthropic, Google 계정은 antigravity, 나머지는 모델 ID 앞부분 */
+export function engineProvider(engine: Engine, model: string): string {
+  return engine === "claude-code" ? "anthropic" : engine === "antigravity" ? "antigravity" : (model.split("/")[0] ?? model);
+}
 export const PROVIDER_ERRORS = new Set(["provider_quota", "provider_auth", "provider_unavailable", "spawn_failed"]);
 
 export interface Attempt {

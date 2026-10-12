@@ -17,7 +17,7 @@ import {
 } from "@nexus/shared";
 import { cleanupWorktree, serialGit } from "./gitqueue.ts";
 import type { PlannedEnv } from "./planned.ts";
-import { runRoutes, type Attempt } from "./run.ts";
+import { engineProvider, runRoutes, type Attempt } from "./run.ts";
 import { runTests, type TestRun } from "./verify.ts";
 
 export interface Resolution {
@@ -54,7 +54,7 @@ export const MAX_REVIEW_DIFF = 60_000;
 
 /** 엔진·모델로 공급사를 정한다. Claude Code는 Anthropic, OpenCode는 "openai/gpt-5"의 앞부분 */
 export function routeProvider(r: Pick<Route, "engine" | "model">): string {
-  return r.engine === "claude-code" ? "anthropic" : (r.model.split("/")[0] ?? r.model);
+  return engineProvider(r.engine, r.model);
 }
 
 /**

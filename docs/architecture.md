@@ -49,7 +49,7 @@
 
 ### 계정
 
-- `accounts.yaml`에 계정을 적고, `models.yaml`의 별칭에 `accounts: [..]`로 연결합니다. 계정 폴더는 Claude Code에 `CLAUDE_CONFIG_DIR`, OpenCode에 `XDG_DATA_HOME`으로 넘깁니다.
+- `accounts.yaml`에 계정을 적고, `models.yaml`의 별칭에 `accounts: [..]`로 연결합니다. 계정 폴더는 Claude Code에 `CLAUDE_CONFIG_DIR`, OpenCode에 `XDG_DATA_HOME`으로 넘깁니다. Antigravity(`engine: antigravity`)는 로그인 정보를 운영체제 자격 증명 저장소에 두어 폴더를 넘기지 않으므로 계정을 하나만 받습니다. 로그인 여부는 파일로 알 수 없어, 로그인 창을 연 뒤 계정 폴더에 남기는 `.nexus-login` 표시로 봅니다.
 - 라우터는 별칭 순서를 계정까지 펼칩니다. 같은 별칭의 다른 계정으로 넘어가는 것은 `maxFallbacks`에 세지 않습니다.
 - 병렬 하위 작업은 `spread`(하위 작업 번호)로 시작 계정을 돌려, 같은 모델이라도 계정이 나뉘게 합니다.
 - 한도·로그인·연결 오류가 나면 그 계정을 쉬게 합니다 (한도 60분, 로그인 12시간, 연결 5분). 상태는 `%LOCALAPPDATA%\Nexus\state\accounts-state.json`에 남아 다음 실행과 설정 화면이 같이 봅니다.
@@ -80,8 +80,9 @@
 ### 모델 목록
 
 - 설정 화면 `GET /api/models`가 고를 수 있는 모델을 돌려줍니다(`packages/shared/src/catalog.ts`). Claude Code는 목록 명령이 없어서 `CLAUDE_MODELS`에 직접 두고, OpenCode는 평소 로그인과 OpenCode 계정 폴더(`XDG_DATA_HOME`)마다 `opencode models --verbose`를 돌려 이름·문맥 길이·비용을 읽습니다. 사라질 예정(deprecated)인 모델은 뺍니다.
+- Google 계정(Antigravity) 계정이 있으면 `agy models`의 "slug  표시 이름" 줄을 읽어 `antigravity` 공급자로 넣습니다. 읽지 못하면 `ANTIGRAVITY_MODELS` 기본 목록을 보여 줍니다. Windows에서 `agy`가 PATH에 없으면 `%LOCALAPPDATA%\agy\bin\agy.exe`를 씁니다(설치 전에 켠 프로그램은 새 PATH를 모름).
 - 결과는 `state/models-cache.json`에 캐시하고, `?refresh=1`이면 다시 읽습니다. 동시에 여러 번 요청해도 한 번만 돌립니다.
-- 화면에서 목록의 모델을 고르면 `models.yaml`에 별칭을 만듭니다(`newAliases`). 엔진은 ID에 `/`가 있으면 OpenCode, 없으면 Claude Code입니다. 별칭을 지우면(`removeAliases`) 작업 순서에서도 빼고, 어떤 작업의 순서가 비거나 위험 작업·작업 나누기 담당이면 저장을 막습니다.
+- 화면에서 목록의 모델을 고르면 `models.yaml`에 별칭을 만듭니다(`newAliases`). 엔진은 ID에 `/`가 있으면 OpenCode, 목록에서 고른 Google 계정 모델은 Antigravity, 그 밖에는 Claude Code입니다. 별칭을 지우면(`removeAliases`) 작업 순서에서도 빼고, 어떤 작업의 순서가 비거나 위험 작업·작업 나누기 담당이면 저장을 막습니다.
 
 ### 트레이 실행기
 
@@ -137,3 +138,5 @@
 - `apps/nexus-server`는 사람이 보는 화면(설정, 스튜디오, 음성 비서)과 텔레그램 봇만 맡습니다. 병렬 실행 관리는 별도 서버 없이 어댑터 안에서 합니다. Paperclip이 에이전트당 실행을 하나씩 관리하므로 그 실행 안에서 하위 작업을 동시에 돌리는 편이 단순합니다.
 - 하위 이슈는 담당자를 비워 둡니다. 개발 부서 에이전트에게 배정하면 Paperclip이 하위 이슈마다 하트비트를 깨워 같은 작업을 두 번 실행할 수 있습니다.
 - 어댑터는 `@paperclipai/adapter-utils`를 런타임에 불러오지 않습니다. 필요한 타입만 `adapter-types.ts`에 옮겼고, 빌드할 때 의존성을 모두 묶어 Paperclip이 패키지 설치 없이 불러올 수 있게 했습니다.
+- Google 계정(Gemini 구독)은 세 번째 엔진 `antigravity`로 붙였습니다. Gemini CLI가 2026년 6월에 개인 계정 지원을 끝내고 Antigravity CLI로 바뀌었고어서 공식 CLI를 직접 부릅니다. 지시문은 표준 입력 대신 인수로 넘기고(헤드리스 모드가 인수만 받음), 20,000자가 넘으면 작업 폴더 밖 임시 파일에 두고 그 경로를 넘깁니다. 읽기 전용 실행은 `--dangerously-skip-permissions`를 빼서 agy가 도구 승인을 거절하게 합니다.
+- Meta Muse는 별도 엔진 없이 OpenCode 공급자(`meta`)로 씁니다. Meta Model API가 OpenAI 호환이라 OpenCode로 충분하고, Muse Code 구독 CLI는 Windows용과 자동 실행 방법이 없습니다.

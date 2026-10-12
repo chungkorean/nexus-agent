@@ -1,5 +1,6 @@
 import { existsSync, statSync } from "node:fs";
 import { buildPrompt, classify, planRoutes, shouldPlan } from "@nexus/core";
+import { AntigravityExecutor } from "@nexus/executor-antigravity";
 import { ClaudeCodeExecutor } from "@nexus/executor-claude-code";
 import { OpenCodeExecutor } from "@nexus/executor-opencode";
 import { PaperclipClient, labelNames, type PaperclipComment, type PaperclipIssue } from "@nexus/paperclip-client";
@@ -9,7 +10,7 @@ import { ADAPTER_TYPE, bundledConfigDir, readSettings, withResultPolicy, type Di
 import { checkLines, crossReview, type Review } from "./aggregate.ts";
 import { makePlan, runPlanned } from "./planned.ts";
 import { runTests, type TestRun } from "./verify.ts";
-import { finishIssue, firstLine, outcomeLines, routeLine, postResult, runRoutes, safeComment, safeStatus, sumUsage, type Attempt } from "./run.ts";
+import { finishIssue, firstLine, isSubscription, outcomeLines, routeLine, postResult, runRoutes, safeComment, safeStatus, sumUsage, type Attempt } from "./run.ts";
 
 /** 테스트에서 가짜 실행기·클라이언트로 바꿔 끼울 수 있게 의존성을 모아 둔다. */
 export interface DispatchDeps {
@@ -24,6 +25,7 @@ export const defaultDeps: DispatchDeps = {
   executors: (s) => ({
     opencode: new OpenCodeExecutor({ command: s.opencodeCommand }),
     "claude-code": new ClaudeCodeExecutor({ command: s.claudeCommand }),
+    antigravity: new AntigravityExecutor({ command: s.agyCommand }),
   }),
   client: (ctx) => new PaperclipClient(PaperclipClient.resolveBaseUrl(), ctx.authToken, ctx.runId),
   accountState: (s) => new AccountState(s.stateDir),
@@ -213,7 +215,7 @@ async function dispatch(ctx: AdapterExecutionContext, deps: DispatchDeps): Promi
     sessionId: last.outcome.sessionId ?? null,
     provider: last.outcome.provider ?? null,
     model: last.outcome.model,
-    billingType: last.route.engine === "claude-code" ? "subscription" : "unknown",
+    billingType: isSubscription(last.route.engine) ? "subscription" : "unknown",
     costUsd: totalCost || null,
     summary: !last.outcome.ok ? `실패: ${last.outcome.errorMessage}` : !passed ? "바뀐 결과가 테스트를 통과하지 못했어요" : firstLine(last.outcome.summary),
     errorMessage: !last.outcome.ok ? last.outcome.errorMessage ?? null : !passed ? "바뀐 결과가 테스트를 통과하지 못했어요" : null,

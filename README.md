@@ -1,6 +1,6 @@
 # Nexus-Agent
 
-Paperclip이 지휘하고 OpenCode·Claude Code가 실행하는 하이브리드 에이전트 OS입니다.
+Paperclip이 지휘하고 OpenCode·Claude Code·Antigravity CLI가 실행하는 하이브리드 에이전트 OS입니다.
 Paperclip의 "개발 부서" 에이전트에 이슈가 배정되면, Nexus가 이슈를 읽고 분류해서
 작업에 맞는 AI 모델로 자동 실행하고 결과를 이슈 댓글로 남깁니다.
 
@@ -10,7 +10,7 @@ Paperclip의 "개발 부서" 에이전트에 이슈가 배정되면, Nexus가 �
 
 - **자동 호출**: Paperclip 외부 어댑터 `nexus_dispatch`가 하트비트마다 배정된 이슈를 처리합니다.
 - **분류**: 코드 수정뿐 아니라 터미널 명령, 엑셀 파싱, APK 디컴파일 같은 로컬 작업도 "실행 작업"으로 봅니다. 라벨(`code`, `비코딩`)이 있으면 라벨이 우선합니다.
-- **모델 선택**: `config/routing.yaml`의 작업 종류별 순서에 따라 엔진과 모델을 고릅니다. Claude 모델은 구독 계정으로 Claude Code에서, 그 밖의 모델은 OpenCode에서 실행합니다.
+- **모델 선택**: `config/routing.yaml`의 작업 종류별 순서에 따라 엔진과 모델을 고릅니다. Claude 모델은 구독 계정으로 Claude Code에서, Google 계정(Gemini 구독) 모델은 Antigravity CLI에서, 그 밖의 모델은 OpenCode에서 실행합니다.
 - **대체 실행**: 한도 초과나 로그인 만료 같은 공급자 문제면 다음 모델로 넘어갑니다.
 - **비코딩 위임**: 기획·세계관·홍보 문구 같은 작업은 지정한 에이전트(예: Hermes)에게 하위 이슈로 넘깁니다.
 - **결과 보고**: 요약, 바뀐 파일, 토큰·비용을 이슈 댓글로 남기고 Paperclip 비용 집계에 보고합니다.
@@ -40,6 +40,7 @@ Paperclip의 "개발 부서" 에이전트에 이슈가 배정되면, Nexus가 �
 | pnpm | `npm install -g pnpm` |
 | OpenCode | `npm install -g opencode-ai` 후 `opencode auth login`으로 공급자 로그인 |
 | Claude Code | `npm install -g @anthropic-ai/claude-code` 후 `claude`를 실행해 구독 계정으로 로그인 |
+| Antigravity CLI (선택) | Google 계정으로 Gemini를 쓸 때만. 설정 화면에서 Google 계정을 추가하고 "로그인 창 열기"를 누르면 설치와 로그인을 해 줍니다. 직접 하려면 PowerShell에서 `irm https://antigravity.google/cli/install.ps1 \| iex` 후 `agy` |
 | Paperclip | `npx paperclipai@latest onboard --yes` (화면: http://localhost:3100) |
 
 설치가 끝나면 점검 스크립트를 돌려 보세요.
@@ -96,6 +97,25 @@ Invoke-RestMethod -Method Post -Uri http://localhost:3100/api/adapters/install -
 - **사용량**: 오늘, 최근 7일, 최근 30일, 이번 달의 실행 수, 성공률, 토큰, 비용을 계정별·AI 모델별로 봅니다.
 
 저장하기 전에 "미리 보기"로 바뀌는 내용을 확인할 수 있고, 잘못 바꿨으면 "되돌리기"를 누르세요. 다음 작업부터 적용됩니다.
+
+#### Google 계정으로 Gemini 쓰기 (API 키 없이)
+
+Gemini CLI는 2026년 6월 18일부터 무료·Google AI Pro·Ultra 계정을 받지 않고, 그 자리를 Antigravity CLI(`agy`)가 이어받았습니다. Nexus는 `agy -p "<지시문>" --output-format json --model <모델>`로 실행합니다.
+
+1. 설정 화면의 계정 칸에서 "Google 계정 (Gemini 구독)"을 골라 추가합니다.
+2. "로그인 창 열기"를 누르면 새 창이 열립니다. `agy`가 없으면 Google 공식 설치 프로그램으로 설치하고, 브라우저에서 Google 로그인을 엽니다.
+3. AI 모델 칸에서 목록을 새로 고치면 "Google 계정 (Gemini 구독)" 밑에 `agy models`로 읽은 모델(예: `gemini-3.1-pro-high`)이 보입니다.
+
+- 로그인 정보는 Windows 자격 증명 관리자에 하나만 저장되므로 Google 계정은 하나만 쓸 수 있습니다. 설정 화면의 "사용 가능"은 로그인 창을 한 번 열었다는 뜻입니다.
+- 한도는 구독 등급에 따라 다르고 약 5시간 또는 1주 단위로 다시 찹니다. 한도에 걸리면 다른 계정·모델로 넘어갑니다.
+- API 키로 쓰고 싶으면 지금처럼 OpenCode에서 "Gemini API 키"로 연결하세요.
+
+#### Meta Muse 쓰기
+
+Meta Muse는 Meta Model API(공개 미리 보기, 미국 개발자 대상)의 API 키로 씁니다. https://dev.meta.ai 에서 키를 만든 뒤 터미널에서 `opencode auth login`(또는 OpenCode 안에서 `/connect`)으로 Meta를 고르고 키를 붙여 넣으세요. 설정 화면 계정 칸에서는 "Meta Muse (API 키)"로 계정을 추가합니다. 목록을 새로 고치면 `muse-spark-1.1` 같은 모델이 "Meta Muse" 밑에 보입니다.
+
+- OpenCode 공급자 목록에 Meta가 없으면 `opencode.json`에 OpenAI 호환 공급자로 직접 넣을 수 있습니다: 주소 `https://api.meta.ai/v1`, 키 환경 변수 `MODEL_API_KEY`, 모델 `muse-spark-1.1`. 이때 공급자 ID를 `meta`로 지으면 설정 화면이 Meta Muse로 묶어 보여 줍니다.
+- 월 구독인 Muse Code(`muse`)는 Windows용이 없고(WSL2만) 자동 실행 방법이 공개되지 않아서 붙이지 않았습니다.
 
 설정 파일은 `%LOCALAPPDATA%\Nexus\config`에 있습니다 (`models.yaml`, `routing.yaml`, `accounts.yaml`). 처음 화면을 열 때 기본 설정을 복사해 둡니다. 직접 고쳐도 되고, 주석에 설명이 있습니다. 직접 고칠 때 OpenCode 모델 이름은 `opencode models`로 확인한 값을 넣어야 합니다.
 
@@ -163,6 +183,7 @@ packages/
   core/                   분류기, 라우터, 작업 분해(플래너), 실행 지시문
   executor-opencode/      opencode serve를 띄워 작업마다 모델을 골라 실행
   executor-claude-code/   claude -p로 구독 계정 실행 (계정 분리는 CLAUDE_CONFIG_DIR)
+  executor-antigravity/   agy -p로 Google 계정(Gemini 구독) 실행
   paperclip-client/       Paperclip 이슈 API
   paperclip-adapter/      Paperclip 외부 어댑터 nexus_dispatch (빌드 결과가 dist/)
 apps/
@@ -170,7 +191,7 @@ apps/
   launcher/               Nexus.exe 소스 (Go, 트레이 실행기를 창 없이 띄움)
 config/                   기본 models.yaml, routing.yaml, accounts.yaml
 scripts/                  어댑터 빌드, Windows 환경 점검, 트레이 실행기, Whisper 설치
-tests/                    가짜 Paperclip·OpenCode·Claude Code로 돌리는 테스트
+tests/                    가짜 Paperclip·OpenCode·Claude Code·agy로 돌리는 테스트
 ```
 
 ## 아직 확인하지 못한 것

@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { runProcess, type CommandSpec } from "./process.ts";
@@ -7,7 +7,7 @@ import type { Account, Engine } from "./types.ts";
 /** 설정 화면에서 고를 수 있는 모델 하나 */
 export interface CatalogModel {
   engine: Engine;
-  /** claude-code는 opus·claude-opus-5-5 같은 이름, opencode는 provider/model */
+  /** claude-code는 opus·claude-opus-5-5 같은 이름, antigravity는 gemini-3.1-pro-high 같은 agy 이름, opencode는 provider/model */
   id: string;
   /** 화면에 보여 줄 이름 (예: Claude Opus 5.5, DeepSeek V4.1 Flash) */
   name: string;
@@ -51,6 +51,42 @@ export const CLAUDE_MODELS: CatalogModel[] = [
   { engine: "claude-code", provider: "anthropic", id: "claude-opus-4-6", name: "Claude Opus 4.6" },
   { engine: "claude-code", provider: "anthropic", id: "claude-sonnet-4-6", name: "Claude Sonnet 4.6" },
 ];
+
+/**
+ * Google 계정(Antigravity CLI)으로 쓸 수 있는 모델. `agy models`로 실제 목록을 읽지 못했을 때 보여 준다.
+ * 이름 끝의 high·medium은 생각을 얼마나 깊게 하는지다.
+ */
+export const ANTIGRAVITY_MODELS: CatalogModel[] = [
+  { engine: "antigravity", provider: "antigravity", id: "gemini-3.1-pro-high", name: "Gemini 3.1 Pro (High)", featured: true },
+  { engine: "antigravity", provider: "antigravity", id: "gemini-3.8-flash-high", name: "Gemini 3.8 Flash (High)", featured: true },
+  { engine: "antigravity", provider: "antigravity", id: "gemini-3.8-flash-medium", name: "Gemini 3.8 Flash (Medium)" },
+  { engine: "antigravity", provider: "antigravity", id: "gemini-3.7-flash-high", name: "Gemini 3.7 Flash (High)" },
+  { engine: "antigravity", provider: "antigravity", id: "gemini-3.7-flash-medium", name: "Gemini 3.7 Flash (Medium)" },
+];
+
+/**
+ * agy 실행 파일. Windows 설치 프로그램은 %LOCALAPPDATA%\\agy\\bin에 넣고 PATH에 더하는데,
+ * 설치 전에 켜 둔 Paperclip·Nexus는 새 PATH를 모르므로 그 자리에 있으면 전체 경로를 쓴다.
+ */
+export function defaultAgyCommand(env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): string {
+  if (platform === "win32" && env.LOCALAPPDATA) {
+    const exe = path.join(env.LOCALAPPDATA, "agy", "bin", "agy.exe");
+    if (existsSync(exe)) return exe;
+  }
+  return "agy";
+}
+
+/** `agy models` 출력 읽기: 한 줄에 "slug   표시 이름". 표시 이름이 없으면 slug만 있어도 읽는다. */
+export function parseAgyModels(text: string): CatalogModel[] {
+  const out: CatalogModel[] = [];
+  for (const raw of text.replace(/\x1b\[[0-9;]*m/g, "").split(/\r?\n/)) {
+    const line = raw.trim();
+    const m = line.match(/^([a-z][a-z0-9._-]*-[a-z0-9._-]+)(?:\s+(.+))?$/i);
+    if (!m) continue;
+    out.push({ engine: "antigravity", provider: "antigravity", id: m[1]!, name: m[2]?.trim() || m[1]! });
+  }
+  return out;
+}
 
 const MODEL_LINE = /^([A-Za-z0-9._-]+)\/(\S+)$/;
 
@@ -97,8 +133,10 @@ export function parseOpencodeModels(text: string): CatalogModel[] {
 /** 공급자 ID를 사람이 읽는 이름으로 */
 export const PROVIDER_LABELS: Record<string, string> = {
   anthropic: "Claude 구독",
+  antigravity: "Google 계정 (Gemini 구독)",
+  meta: "Meta Muse",
   openai: "OpenAI",
-  google: "Google Gemini",
+  google: "Google Gemini (API 키)",
   "google-vertex": "Google Vertex",
   deepseek: "DeepSeek",
   xiaomi: "Xiaomi MiMo",
@@ -137,6 +175,8 @@ export async function discoverModels(opts: {
   stateDir: string;
   accounts: Account[];
   opencodeCommand?: CommandSpec;
+  /** Antigravity CLI. Antigravity 계정이 있을 때만 `agy models`를 부른다. */
+  agyCommand?: CommandSpec;
   timeoutSec?: number;
 }): Promise<ModelCatalog> {
   const errors: string[] = [];
@@ -164,8 +204,19 @@ export async function discoverModels(opts: {
       found.set(m.id, { ...(prev ?? m), ...(accounts.length ? { accounts } : {}) });
     }
   }
+  let google: CatalogModel[] = [];
+  const agyAccounts = opts.accounts.filter((a) => a.engine === "antigravity");
+  if (agyAccounts.length) {
+    const res = await runProcess(opts.agyCommand ?? defaultAgyCommand(), ["models"], { cwd: os.homedir(), timeoutSec: opts.timeoutSec ?? 60 });
+    const listed = res.exitCode === 0 ? parseAgyModels(res.stdout) : [];
+    if (res.spawnError) errors.push("Antigravity CLI(agy)를 찾지 못했어요. 계정 칸의 설치 안내를 따라 설치해 주세요.");
+    else if (!listed.length) errors.push(`Google 계정: 모델 목록을 읽지 못해 기본 목록을 보여 줘요 (${(res.stderr || res.stdout).trim().split("\n").pop()?.slice(0, 200) || res.exitCode})`);
+    const featured = new Set(ANTIGRAVITY_MODELS.filter((m) => m.featured).map((m) => m.id));
+    google = (listed.length ? listed : ANTIGRAVITY_MODELS).map((m) => ({ ...m, featured: featured.has(m.id) || undefined, accounts: agyAccounts.map((a) => a.id) }));
+    for (const m of google) if (!m.featured) delete m.featured;
+  }
   const catalog: ModelCatalog = {
-    models: [...CLAUDE_MODELS, ...[...found.values()].sort((a, b) => a.provider.localeCompare(b.provider) || a.name.localeCompare(b.name))],
+    models: [...CLAUDE_MODELS, ...google, ...[...found.values()].sort((a, b) => a.provider.localeCompare(b.provider) || a.name.localeCompare(b.name))],
     fetchedAt: new Date().toISOString(),
     errors,
   };

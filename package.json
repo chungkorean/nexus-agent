@@ -17,6 +17,7 @@
   },
   "devDependencies": {
     "@nexus/core": "workspace:*",
+    "@nexus/executor-antigravity": "workspace:*",
     "@nexus/executor-claude-code": "workspace:*",
     "@nexus/executor-opencode": "workspace:*",
     "@nexus/paperclip-client": "workspace:*",

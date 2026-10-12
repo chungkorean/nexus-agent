@@ -62,10 +62,15 @@ export interface NexusConfig {
 
 export const PLANNING_MODES = ["auto", "always", "never"] as const;
 
-const ENGINES: Engine[] = ["opencode", "claude-code"];
+const ENGINES: Engine[] = ["opencode", "claude-code", "antigravity"];
 const TASK_TYPES: TaskType[] = ["design", "implement", "refactor", "test", "review", "docs", "research", "ops"];
 
 export class ConfigError extends Error {}
+
+/** 계정에 공급자를 적지 않았을 때 엔진에 따른 기본값 */
+export function defaultProvider(engine: Engine): string {
+  return engine === "claude-code" ? "anthropic" : engine === "antigravity" ? "antigravity" : "opencode";
+}
 
 /**
  * config 폴더의 models.yaml과 routing.yaml을 읽는다.
@@ -123,7 +128,7 @@ export function validateConfig(modelsRaw: unknown, routingRaw: unknown, accounts
       accounts[id] = {
         id,
         engine: v.engine,
-        provider: typeof v.provider === "string" && v.provider ? v.provider : v.engine === "claude-code" ? "anthropic" : "opencode",
+        provider: typeof v.provider === "string" && v.provider ? v.provider : defaultProvider(v.engine),
         label: typeof v.label === "string" && v.label ? v.label : id,
         dir: typeof v.dir === "string" && v.dir ? v.dir : path.join(accountsDir, id),
       };

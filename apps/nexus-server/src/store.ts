@@ -189,7 +189,7 @@ export function applyChanges(
         const model = typeof c.model === "string" ? c.model.trim() : "";
         const lbl = typeof c.label === "string" && c.label.trim() ? c.label.trim().slice(0, 80) : model;
         if (!ALIAS_NAME.test(name) || current.aliases[name]) problems.push(`'${lbl}' 모델의 영문 이름(${name})을 쓸 수 없어요. 화면을 새로 고쳐 주세요.`);
-        else if (engine !== "claude-code" && engine !== "opencode") problems.push(`'${lbl}' 모델의 종류를 알 수 없어요.`);
+        else if (engine !== "claude-code" && engine !== "opencode" && engine !== "antigravity") problems.push(`'${lbl}' 모델의 종류를 알 수 없어요.`);
         else if (!model || (engine === "opencode") !== model.includes("/")) problems.push(`'${lbl}' 모델 ID가 올바르지 않아요.`);
         else {
           const node: Record<string, unknown> = { engine, model, label: lbl };

@@ -18,7 +18,16 @@ export interface LaunchResult {
   error?: string;
 }
 
-export function buildLoginCommand(account: Pick<Account, "id" | "engine" | "dir">): LoginCommand {
+/**
+ * antigravityScript: Windows에서 Antigravity CLI가 없으면 설치부터 하고 agy를 여는 스크립트.
+ * 다른 운영체제에서는 agy를 그대로 실행한다.
+ */
+export function buildLoginCommand(account: Pick<Account, "id" | "engine" | "dir">, o: { antigravityScript?: string; platform?: NodeJS.Platform } = {}): LoginCommand {
+  if (account.engine === "antigravity") {
+    // agy는 로그인 정보를 운영체제 자격 증명 저장소에 두므로 폴더를 넘기지 않는다.
+    const useScript = (o.platform ?? process.platform) === "win32" && o.antigravityScript;
+    return { accountId: account.id, engine: account.engine, command: useScript ? o.antigravityScript! : "agy", args: [], env: {} };
+  }
   if (account.engine === "claude-code") {
     return { accountId: account.id, engine: account.engine, command: "claude", args: [], env: { CLAUDE_CONFIG_DIR: account.dir } };
   }
@@ -45,7 +54,8 @@ export function commandText(cmd: LoginCommand, platform: NodeJS.Platform = proce
  */
 export function defaultLauncher(cmd: LoginCommand): Promise<LaunchResult> {
   if (process.platform !== "win32") return Promise.resolve({ launched: false, commandText: commandText(cmd, process.platform) });
-  const inner = [cmd.command, ...cmd.args].join(" ");
+  // 경로에 빈칸이 있으면(예: C:\Users\홍 길동) 따옴표로 묶는다.
+  const inner = [/\s/.test(cmd.command) ? `"${cmd.command}"` : cmd.command, ...cmd.args].join(" ");
   return new Promise((resolve) => {
     try {
       const child = spawn(process.env.ComSpec || "cmd.exe", ["/d", "/s", "/c", `"start "Nexus 로그인" cmd /k ${inner}"`], {

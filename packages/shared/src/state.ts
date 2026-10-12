@@ -132,10 +132,15 @@ export class AccountState {
 
 /**
  * 계정 폴더에 로그인해 둔 흔적이 있는지. Claude Code는 .credentials.json, OpenCode는 opencode/auth.json.
- * Ollama 같은 로컬 모델은 로그인이 필요 없다.
+ * Ollama 같은 로컬 모델은 로그인이 필요 없다. Antigravity는 로그인 정보를 운영체제 자격 증명 저장소에 두어
+ * 파일로 확인할 수 없으므로, 로그인을 한 번 연 적이 있으면(.nexus-login 표시) 된 것으로 본다.
  */
+/** Antigravity 계정 폴더에 남기는 "로그인 창을 열었음" 표시 파일 */
+export const ANTIGRAVITY_LOGIN_MARK = ".nexus-login";
+
 export function accountHasLogin(account: Account): boolean {
   if (account.provider.toLowerCase() === "ollama") return true;
   if (account.engine === "claude-code") return existsSync(path.join(account.dir, ".credentials.json"));
+  if (account.engine === "antigravity") return existsSync(path.join(account.dir, ANTIGRAVITY_LOGIN_MARK));
   return existsSync(path.join(account.dir, "opencode", "auth.json"));
 }

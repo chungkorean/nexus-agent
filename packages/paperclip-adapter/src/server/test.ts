@@ -18,11 +18,13 @@ export async function testDispatchEnvironment(ctx: AdapterEnvironmentTestContext
 
   let usesOpenCode = true;
   let usesClaude = true;
+  let usesAgy = false;
   try {
     const config = loadConfig(s.configDir, bundledConfigDir(), s.accountsDir);
     const engines = new Set(Object.values(config.aliases).map((a) => a.engine));
     usesOpenCode = engines.has("opencode");
     usesClaude = engines.has("claude-code");
+    usesAgy = engines.has("antigravity");
     checks.push({ code: "config_ok", level: "info", message: `설정 파일을 읽었어요 (별칭 ${Object.keys(config.aliases).length}개)`, detail: s.configDir });
     const state = new AccountState(s.stateDir);
     for (const acc of Object.values(config.accounts)) {
@@ -63,6 +65,7 @@ export async function testDispatchEnvironment(ctx: AdapterEnvironmentTestContext
 
   if (usesOpenCode) checks.push(await probe("opencode", s.opencodeCommand, s.cwd));
   if (usesClaude) checks.push(await probe("claude", s.claudeCommand, s.cwd));
+  if (usesAgy) checks.push(await probe("agy", s.agyCommand, s.cwd));
   if (!s.nonCodingAgentId) {
     checks.push({ code: "no_delegate", level: "warn", message: "비코딩 작업을 넘길 에이전트(nonCodingAgentId)가 없어요. 비코딩 이슈도 직접 실행합니다." });
   }
@@ -79,7 +82,12 @@ async function probe(name: string, cmd: CommandSpec, cwd: string | null): Promis
       level: "error",
       message: `${name}을 실행하지 못했어요.`,
       detail: res.spawnError?.message ?? res.stderr.slice(-300),
-      hint: name === "claude" ? "Claude Code를 설치하고 claude 로그인을 마쳐 주세요." : "OpenCode를 설치하고 opencode에서 공급자 로그인을 마쳐 주세요.",
+      hint:
+        name === "claude"
+          ? "Claude Code를 설치하고 claude 로그인을 마쳐 주세요."
+          : name === "agy"
+            ? "Nexus 설정 화면의 계정 칸에서 Google 계정 '로그인 창 열기'를 누르면 Antigravity CLI를 설치하고 로그인해요."
+            : "OpenCode를 설치하고 opencode에서 공급자 로그인을 마쳐 주세요.",
     };
   }
   return { code: `${name}_ok`, level: "info", message: `${name} ${res.stdout.trim().split(/\r?\n/)[0] ?? ""}`.trim() };

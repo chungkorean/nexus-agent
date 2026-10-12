@@ -26,7 +26,7 @@ import { ADAPTER_TYPE, type DispatchSettings } from "../settings.ts";
 import { aggregate, checkLines, type AggregateResult } from "./aggregate.ts";
 import { githubLines, publishToGithub, type GithubResult } from "./github.ts";
 import { cleanupWorktree, serialGit } from "./gitqueue.ts";
-import { finishIssue, firstLine, postResult, outcomeLines, routeLine, runRoutes, safeComment, safeStatus, sumUsage, type Attempt, type Log } from "./run.ts";
+import { engineProvider, finishIssue, firstLine, isSubscription, postResult, outcomeLines, routeLine, runRoutes, safeComment, safeStatus, sumUsage, type Attempt, type Log } from "./run.ts";
 
 export interface PlannedEnv {
   ctx: AdapterExecutionContext;
@@ -217,8 +217,8 @@ export async function runPlanned(env: PlannedEnv, plan: Plan, planAttempts: Atte
     usage: sumUsage(outcomes),
     usageBasis: "per_run",
     model: models.join(", ") || null,
-    provider: models.length === 1 ? (usedRoutes[0]?.engine === "claude-code" ? "anthropic" : models[0]!.split("/")[0]) : null,
-    billingType: usedRoutes.length && usedRoutes.every((r) => r.engine === "claude-code") ? "subscription" : "unknown",
+    provider: models.length === 1 ? engineProvider(usedRoutes[0]?.engine ?? "opencode", models[0]!) : null,
+    billingType: usedRoutes.length && usedRoutes.every((r) => isSubscription(r.engine)) ? "subscription" : "unknown",
     costUsd: totalCost || null,
     summary: `하위 작업 ${plan.subtasks.length}개 중 ${doneCount}개 완료${agg?.tests ? `, 테스트 ${TEST_LABEL[agg.tests.status]}` : ""}${firstLine(plan.summary) ? `: ${firstLine(plan.summary)}` : ""}`,
     errorMessage: overallOk ? null : !allDone ? `하위 작업 ${plan.subtasks.length - doneCount}개가 끝나지 않았어요` : agg?.error ?? (agg?.tests?.status === "failed" ? "합친 결과가 테스트를 통과하지 못했어요" : null),

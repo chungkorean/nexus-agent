@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { aliasNameFor, parseOpencodeModels } from "./catalog.ts";
+import { aliasNameFor, parseAgyModels, parseOpencodeModels, PROVIDER_LABELS } from "./catalog.ts";
 
 const SAMPLE = `deepseek/deepseek-flash
 {
@@ -33,5 +33,17 @@ describe("aliasNameFor", () => {
     expect(aliasNameFor("deepseek/deepseek-flash", ["deepseek-flash"])).toBe("deepseek-flash-2");
     expect(aliasNameFor("amazon-bedrock/amazon.nova-pro-v1:0", [])).toBe("amazon-nova-pro-v1-0");
     expect(aliasNameFor("claude-opus-5-5", [])).toBe("claude-opus-5-5");
+  });
+});
+
+describe("agy models 읽기", () => {
+  it("slug와 표시 이름을 읽고, 안내 문구는 건너뛴다", () => {
+    const text = "Available models:\n\x1b[1mgemini-3.8-flash-high\x1b[0m     Gemini 3.8 Flash (High)\ngemini-3.1-pro-high       Gemini 3.1 Pro (High)\ngemini-3.7-flash-medium\n...\n";
+    expect(parseAgyModels(text)).toEqual([
+      { engine: "antigravity", provider: "antigravity", id: "gemini-3.8-flash-high", name: "Gemini 3.8 Flash (High)" },
+      { engine: "antigravity", provider: "antigravity", id: "gemini-3.1-pro-high", name: "Gemini 3.1 Pro (High)" },
+      { engine: "antigravity", provider: "antigravity", id: "gemini-3.7-flash-medium", name: "gemini-3.7-flash-medium" },
+    ]);
+    expect(PROVIDER_LABELS.meta).toBe("Meta Muse");
   });
 });

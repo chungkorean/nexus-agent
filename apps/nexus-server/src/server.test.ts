@@ -392,6 +392,25 @@ describe("settings server", () => {
     expect(existsSync(path.join(accountsDir, "openai-main"))).toBe(true);
   });
 
+  it("adds one Google account (Antigravity) and opens its login without a folder", async () => {
+    await start();
+    const added = await post("/api/accounts", { id: "google", engine: "antigravity", provider: "openai", label: "내 Google" });
+    expect(added.status).toBe(200);
+    // 공급자는 언제나 antigravity로 둔다.
+    expect(parse(read("accounts.yaml")).accounts.google).toEqual({ engine: "antigravity", provider: "antigravity", label: "내 Google" });
+    const second = await post("/api/accounts", { id: "google-2", engine: "antigravity" });
+    expect(second.status).toBe(409);
+    expect(second.body.error).toContain("하나만");
+
+    expect((await getState()).body.accounts.find((a: any) => a.id === "google").loggedIn).toBe(false);
+    const login = await post("/api/accounts/login", { id: "google" });
+    expect(login.body.message).toContain("Google 계정");
+    expect(launched.at(-1)).toMatchObject({ accountId: "google", engine: "antigravity", args: [], env: {} });
+    expect(launched.at(-1)!.command).toMatch(/^agy$|antigravity-login\.cmd$/);
+    // 로그인 정보는 파일로 볼 수 없어서, 로그인 창을 연 뒤부터 사용 가능으로 본다.
+    expect((await getState()).body.accounts.find((a: any) => a.id === "google").loggedIn).toBe(true);
+  });
+
   it("shows the command when the window cannot be opened", async () => {
     writeConfig(configDir);
     srv = createSettingsServer({ configDir, stateDir, accountsDir, port: 0, launcher: async () => ({ launched: false, commandText: "CLAUDE_CONFIG_DIR=/x claude" }) });
@@ -511,7 +530,25 @@ describe("settings server", () => {
     expect(res.models.find((m: any) => m.id === "deepseek/deepseek-flash")).toMatchObject({ name: "DeepSeek V4.1 Flash", context: 1000000 });
     expect(res.models.find((m: any) => m.id === "xiaomi/mimo-v2-pro")).toMatchObject({ provider: "xiaomi" });
     expect(res.providers.xiaomi).toBe("Xiaomi MiMo");
+    // Google 계정이 없으면 agy를 부르지 않는다.
+    expect(res.models.some((m: any) => m.engine === "antigravity")).toBe(false);
     expect(existsSync(path.join(stateDir, "models-cache.json"))).toBe(true);
+  });
+
+  it("lists Google account models from agy when a Google account exists", async () => {
+    const fakeAgy = path.resolve(import.meta.dirname, "../../../tests/fakes/fake-agy.mjs");
+    const fakeOc = path.join(tmp, "fake-models.mjs");
+    writeFileSync(fakeOc, `console.log("deepseek/deepseek-flash");`);
+    writeConfig(configDir);
+    srv = createSettingsServer({ configDir, fallbackDir, stateDir, accountsDir, port: 0, opencodeCommand: [process.execPath, fakeOc], agyCommand: [process.execPath, fakeAgy] });
+    base = await srv.listen();
+    expect((await post("/api/accounts", { id: "google", engine: "antigravity" })).status).toBe(200);
+    const res = (await (await fetch(new URL("/api/models?refresh=1", base))).json()) as any;
+    expect(res.models.find((m: any) => m.id === "gemini-3.1-pro-high")).toMatchObject({ engine: "antigravity", provider: "antigravity", name: "Gemini 3.1 Pro (High)", accounts: ["google"], featured: true });
+    expect(res.providers.antigravity).toContain("Google");
+    // Google 계정 모델을 작업에 쓸 수 있게 저장한다.
+    expect((await post("/api/save", { newAliases: { "gemini-pro": { engine: "antigravity", model: "gemini-3.1-pro-high", accounts: ["google"] } } })).status).toBe(200);
+    expect(parse(read("models.yaml")).aliases["gemini-pro"]).toMatchObject({ engine: "antigravity", model: "gemini-3.1-pro-high" });
   });
 
   it("reports a broken config file in Korean", async () => {

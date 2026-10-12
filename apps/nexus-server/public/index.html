@@ -218,10 +218,11 @@ input[type=number] {
 <script src="/common.js"></script>
 <script>
 "use strict";
-const ENGINE_NAMES = { "claude-code": "Claude 구독", opencode: "그 밖의 AI (OpenCode)" };
+const ENGINE_NAMES = { "claude-code": "Claude 구독", antigravity: "Google 계정 (Gemini 구독)", opencode: "그 밖의 AI (OpenCode)" };
 const PROVIDERS = [
   ["openai", "ChatGPT / OpenAI"],
-  ["google", "Gemini / Google"],
+  ["google", "Gemini API 키 (Google AI Studio)"],
+  ["meta", "Meta Muse (API 키)"],
   ["github-copilot", "GitHub Copilot"],
   ["openrouter", "OpenRouter"],
   ["deepseek", "DeepSeek"],
@@ -236,7 +237,10 @@ const PROVIDERS = [
   ["ollama", "Ollama (내 컴퓨터)"],
   ["opencode", "그 밖의 서비스"],
 ];
-const PROVIDER_NAMES = Object.fromEntries([["anthropic", "Claude"], ...PROVIDERS]);
+const PROVIDER_NAMES = Object.fromEntries([["anthropic", "Claude"], ["antigravity", "Google 계정 (Gemini 구독)"], ...PROVIDERS]);
+/** 구독 계정 회사를 앞에 둔다: Claude, Google 계정, 그다음 이름순 */
+const PROV_ORDER = ["anthropic", "antigravity"];
+const provSort = (x, y) => { const i = PROV_ORDER.indexOf(x), j = PROV_ORDER.indexOf(y); return (i < 0 ? 9 : i) - (j < 0 ? 9 : j) || providerName(x).localeCompare(providerName(y)); };
 const MODES = [
   ["auto", "자동", "큰 작업만 나눠서 맡겨요"],
   ["always", "항상", "모든 작업을 나눠서 맡겨요"],
@@ -387,7 +391,7 @@ function ensureAlias(m) {
   return name;
 }
 
-const providerOf = (a) => (a.engine === "claude-code" ? "anthropic" : String(a.model).split("/")[0]);
+const providerOf = (a) => (a.engine === "claude-code" ? "anthropic" : a.engine === "antigravity" ? "antigravity" : String(a.model).split("/")[0]);
 const providerName = (p) => (C && C.providers && C.providers[p]) || PROVIDER_NAMES[p] || p;
 
 function modelSub(a) {
@@ -437,15 +441,15 @@ function modelPicker(opts) {
         if (opts.exclude && opts.exclude.includes(a.name)) continue;
         add(providerOf(a), { engine: a.engine, id: a.model, name: draftLabel(a.name), provider: providerOf(a), connected: false, alias: a.name });
       }
-      // Claude 구독을 맨 앞에, 나머지는 이름순
-      return [...map.entries()].sort((x, y) => (x[0] === "anthropic" ? -1 : y[0] === "anthropic" ? 1 : providerName(x[0]).localeCompare(providerName(y[0]))));
+      // Claude 구독, Google 계정을 앞에, 나머지는 이름순
+      return [...map.entries()].sort((x, y) => provSort(x[0], y[0]));
     }
 
     function drawMain() {
       const search = h("input", { type: "text", placeholder: "모델 찾기 (예: deepseek, flash)", "aria-label": "모델 찾기", autocomplete: "off", spellcheck: "false" });
       const list = h("div", {});
       search.addEventListener("input", () => fill());
-      main.replaceChildren(h("div", { class: "pop-head" }, opts.engine === "claude-code" ? "Claude 구독" : "연결한 AI"), search, list);
+      main.replaceChildren(h("div", { class: "pop-head" }, opts.engine && opts.engine !== "opencode" ? ENGINE_NAMES[opts.engine] : "연결한 AI"), search, list);
       if (!narrow()) setTimeout(() => search.focus(), 0);
 
       function fill() {
@@ -533,18 +537,19 @@ function modelPicker(opts) {
     }
 
     function showCustom(focus) {
-      const custom = h("input", { type: "text", placeholder: opts.engine === "claude-code" ? "예: claude-opus-5-5" : "예: deepseek/deepseek-chat", "aria-label": "모델 ID 직접 입력", autocomplete: "off", spellcheck: "false" });
+      const custom = h("input", { type: "text", placeholder: opts.engine === "claude-code" ? "예: claude-opus-5-5" : opts.engine === "antigravity" ? "예: gemini-3.1-pro-high" : "예: deepseek/deepseek-chat", "aria-label": "모델 ID 직접 입력", autocomplete: "off", spellcheck: "false" });
       const use = () => {
         const id = custom.value.trim();
         if (!id) return;
-        const engine = id.includes("/") ? "opencode" : "claude-code";
-        if (opts.engine && engine !== opts.engine) { toast(opts.engine === "claude-code" ? "Claude 구독 모델은 '/' 없이 적어요." : "OpenCode 모델은 회사/모델 형식으로 적어요.", "bad"); return; }
-        pickModel({ engine, id, name: id, provider: engine === "claude-code" ? "anthropic" : id.split("/")[0] });
+        // '/'가 있으면 OpenCode, gemini-로 시작하면 Google 계정, 나머지는 Claude 구독
+        const engine = id.includes("/") ? "opencode" : opts.engine === "antigravity" || (!opts.engine && /^gemini-/i.test(id)) ? "antigravity" : "claude-code";
+        if (opts.engine && engine !== opts.engine) { toast(opts.engine === "opencode" ? "OpenCode 모델은 회사/모델 형식으로 적어요." : "이 모델은 '/' 없이 이름만 적어요.", "bad"); return; }
+        pickModel({ engine, id, name: id, provider: engine === "claude-code" ? "anthropic" : engine === "antigravity" ? "antigravity" : id.split("/")[0] });
       };
       custom.addEventListener("keydown", (e) => { if (e.key === "Enter") use(); });
       openSide("__custom", focus, [h("div", { class: "pop-head" }, "모델 ID 직접 입력"),
         h("div", { class: "inline-form", style: "padding:0 6px" }, custom, h("button", { type: "button", class: "small-btn", onclick: use }, "쓰기")),
-        h("p", { class: "pop-note" }, "OpenCode 모델은 회사/모델(예: xiaomi/mimo-v2), Claude 구독 모델은 이름만 적어요.")]);
+        h("p", { class: "pop-note" }, "OpenCode 모델은 회사/모델(예: xiaomi/mimo-v2), Claude 구독과 Google 계정 모델은 이름만(예: gemini-3.1-pro-high) 적어요.")]);
     }
 
     drawMain();
@@ -858,12 +863,13 @@ function renderAccounts() {
   const list = S.accounts.length
     ? h("ul", { class: "accounts" }, S.accounts.map((a) => {
         const [kind, text] = accountStatus(a);
-        const provider = a.engine === "claude-code" ? "Claude 구독" : (PROVIDER_NAMES[a.provider] || a.provider) + " (OpenCode)";
+        const provider = a.engine === "opencode" ? (PROVIDER_NAMES[a.provider] || a.provider) + " (OpenCode)" : ENGINE_NAMES[a.engine];
         return h("li", { class: "account" },
           h("div", { class: "account-top" },
             h("div", {}, h("div", { class: "account-name" }, a.label), h("div", { class: "account-meta" }, provider + " · " + a.id)),
             h("span", { class: "badge " + kind }, text)),
           a.usedBy.length ? h("div", { class: "small" }, "쓰는 AI 모델: " + a.usedBy.join(", ")) : null,
+          a.engine === "antigravity" ? h("div", { class: "small" }, "로그인 정보는 Windows 자격 증명 관리자에 있어서, '사용 가능'은 로그인 창을 한 번 열었다는 뜻이에요. 실제로 안 되면 다시 로그인 창을 열어 주세요.") : null,
           budgetBox(a),
           h("div", { class: "account-actions" },
             a.provider === "ollama" ? null : h("button", { type: "button", class: "small-btn", onclick: () => loginAccount(a) }, "로그인 창 열기"),
@@ -878,7 +884,7 @@ function renderAccounts() {
   const idInput = h("input", { type: "text", maxlength: "40", autocomplete: "off", spellcheck: "false", placeholder: "예: claude-main", oninput: (e) => { form.id = e.target.value; idInput.dataset.touched = "1"; } });
   const autoId = () => {
     if (idInput.dataset.touched) return;
-    const base = form.engine === "claude-code" ? "claude" : form.provider;
+    const base = form.engine === "claude-code" ? "claude" : form.engine === "antigravity" ? "google" : form.provider;
     let id = base, i = 2;
     while (S.accounts.some((a) => a.id.toLowerCase() === id.toLowerCase())) id = base + "-" + i++;
     idInput.value = form.id = id;
@@ -892,7 +898,8 @@ function renderAccounts() {
     h("h3", {}, "계정 추가"),
     h("div", { class: "choices engine-choices", role: "radiogroup", "aria-label": "계정 종류" },
       engineChoice("claude-code", "Claude 구독", "Claude Pro나 Max 계정이에요. Claude Code로 실행해요."),
-      engineChoice("opencode", "그 밖의 AI (OpenCode)", "ChatGPT, Gemini, GitHub Copilot 같은 다른 회사 AI예요.")),
+      engineChoice("antigravity", "Google 계정 (Gemini 구독)", "API 키 없이 Google 계정으로 Gemini를 써요(Google AI Pro·Ultra면 한도가 커요). Antigravity CLI로 실행하고, PC에 하나만 둘 수 있어요."),
+      engineChoice("opencode", "그 밖의 AI (OpenCode)", "ChatGPT, Gemini API 키, Meta Muse, GitHub Copilot 같은 다른 회사 AI예요.")),
     providerWrap,
     h("label", { class: "field" }, h("span", {}, "이 계정을 부를 이름"),
       h("input", { type: "text", maxlength: "80", placeholder: "예: 회사 Claude 계정", oninput: (e) => { form.label = e.target.value; } })),
@@ -940,7 +947,7 @@ function renderModels() {
     // 이 모델 회사의 계정만 먼저 보여 준다. 다른 회사 계정은 접어 둔다(이미 고른 것은 그대로 보임).
     // '그 밖의 서비스'로 등록한 계정은 이름에 회사 이름(예: Xiaomi_MiMo_pro)이 있으면 그 회사 계정으로 본다.
     const nameHit = (acc) => acc.provider === "opencode" && [prov, providerName(prov).split(/[ (]/)[0]].some((w) => w && (acc.id + " " + acc.label).toLowerCase().includes(w.toLowerCase()));
-    const mine = same.filter((acc) => d.engine === "claude-code" || acc.provider === prov || nameHit(acc) || d.accounts.includes(acc.id));
+    const mine = same.filter((acc) => d.engine !== "opencode" || acc.provider === prov || nameHit(acc) || d.accounts.includes(acc.id));
     const others = same.filter((acc) => !mine.includes(acc));
     const checkRow = (acc) => {
       const idx = d.accounts.indexOf(acc.id);
@@ -959,7 +966,7 @@ function renderModels() {
           others.length ? h("details", {}, h("summary", {}, "다른 회사 계정 " + others.length + "개 보기"),
             h("p", { class: "small" }, "OpenRouter처럼 여러 회사 모델을 함께 파는 계정이거나, 회사를 '그 밖의 서비스'로 등록한 계정일 때만 골라요."),
             h("div", { class: "checks" }, others.map(checkRow))) : null)
-      : h("p", { class: "small" }, d.engine === "claude-code" ? "Claude 구독 계정을 따로 추가하지 않았어요. 평소 로그인한 계정을 써요." : "OpenCode 계정을 따로 추가하지 않았어요. 'opencode auth login'으로 넣은 API 키를 그대로 써요.");
+      : h("p", { class: "small" }, d.engine === "claude-code" ? "Claude 구독 계정을 따로 추가하지 않았어요. 평소 로그인한 계정을 써요." : d.engine === "antigravity" ? "Google 계정을 추가하지 않았어요. 아래 '계정' 칸에서 Google 계정을 추가하고 로그인하거나, agy로 평소 로그인한 계정을 써요." : "OpenCode 계정을 따로 추가하지 않았어요. 'opencode auth login'으로 넣은 API 키를 그대로 써요.");
     const changeBtn = h("button", { type: "button", class: "small-btn" }, "모델 바꾸기");
     return [prov, h("div", { class: "model" },
       h("div", { class: "model-head" }, h("strong", {}, d.label || a.name), h("span", { class: "tag" }, d.isNew ? "새로 추가" : providerName(providerOf(d)))),
@@ -980,7 +987,7 @@ function renderModels() {
   // 회사별로 묶는다(Claude 구독을 맨 앞에).
   const byProv = new Map();
   for (const [prov, card] of cards) { if (!byProv.has(prov)) byProv.set(prov, []); byProv.get(prov).push(card); }
-  const provs = [...byProv.keys()].sort((x, y) => (x === "anthropic" ? -1 : y === "anthropic" ? 1 : providerName(x).localeCompare(providerName(y))));
+  const provs = [...byProv.keys()].sort(provSort);
   const addBtn = h("button", { type: "button", class: "primary" }, "+ 모델 추가");
   return h("section", { class: "card", id: "sec-models" },
     sectionTitle(5, "AI 모델"),
@@ -1143,8 +1150,8 @@ function addAccount(form) {
   withBusy(async () => {
     const id = (form.id || "").trim();
     if (!/^[a-z0-9][a-z0-9_-]{0,39}$/i.test(id)) throw { error: "영문 이름은 영문, 숫자, -, _ 로 40자 안에서 지어 주세요. (예: claude-main)", problems: [] };
-    const provider = form.engine === "claude-code" ? "anthropic" : form.provider;
-    const label = form.label.trim() || (form.engine === "claude-code" ? "Claude 구독" : PROVIDER_NAMES[provider] || provider);
+    const provider = form.engine === "claude-code" ? "anthropic" : form.engine === "antigravity" ? "antigravity" : form.provider;
+    const label = form.label.trim() || (form.engine === "opencode" ? PROVIDER_NAMES[provider] || provider : ENGINE_NAMES[form.engine]);
     const res = await api("/api/accounts", { id, engine: form.engine, provider, label });
     await load(true);
     notice("ok", res.message);

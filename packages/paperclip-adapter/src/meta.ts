@@ -24,7 +24,7 @@ export const agentConfigurationDoc = `# nexus_dispatch 에이전트 설정
 - nonCodingAgentId: 비코딩 작업을 넘길 에이전트 ID
 - configDir: models.yaml, routing.yaml, accounts.yaml이 있는 폴더. 기본값은 %LOCALAPPDATA%\\Nexus\\config
 - stateDir / accountsDir / worktreeRoot: 계정 한도 상태, 계정 로그인 폴더, 병렬 실행용 작업 폴더. 기본값은 %LOCALAPPDATA%\\Nexus 아래
-- opencodeCommand / claudeCommand: 실행 파일 경로 (기본값 opencode / claude)
+- opencodeCommand / claudeCommand / agyCommand: 실행 파일 경로 (기본값 opencode / claude / agy)
 - timeoutSec: 실행 한 번(하위 작업 하나)의 제한 시간(초), 기본값 1800
 - autoMerge: 하위 작업이 모두 성공하면 브랜치를 작업 폴더의 현재 브랜치에 합칠지, 기본값 true. 커밋하지 않은 변경이 있거나 충돌하면 합치지 않고 명령만 알려 줘요.
 - markDoneOnSuccess: 성공하면 이슈를 done으로 바꿀지, 기본값 true. 실패하면 항상 blocked로 바꿔요.
@@ -70,5 +70,6 @@ export const configSchema: AdapterConfigSchema = {
     { key: "configDir", label: "설정 폴더", type: "text", group: "고급", hint: "비워 두면 %LOCALAPPDATA%\\Nexus\\config" },
     { key: "opencodeCommand", label: "opencode 실행 파일", type: "text", group: "고급", hint: "비워 두면 opencode" },
     { key: "claudeCommand", label: "claude 실행 파일", type: "text", group: "고급", hint: "비워 두면 claude" },
+    { key: "agyCommand", label: "agy 실행 파일 (Google 계정)", type: "text", group: "고급", hint: "비워 두면 agy" },
   ],
 };

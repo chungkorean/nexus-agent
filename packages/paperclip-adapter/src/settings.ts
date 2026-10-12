@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { defaultAccountsDir, defaultConfigDir, defaultStateDir, defaultWorktreeRoot, type CommandSpec, type ResultPolicy } from "@nexus/shared";
+import { defaultAccountsDir, defaultAgyCommand, defaultConfigDir, defaultStateDir, defaultWorktreeRoot, type CommandSpec, type ResultPolicy } from "@nexus/shared";
 
 export { defaultConfigDir };
 
@@ -14,6 +14,8 @@ export interface DispatchSettings {
   configDir: string;
   opencodeCommand: CommandSpec;
   claudeCommand: CommandSpec;
+  /** Google 계정(Gemini 구독)용 Antigravity CLI */
+  agyCommand: CommandSpec;
   /** 풀 리퀘스트를 만들 때 쓰는 GitHub CLI */
   ghCommand: CommandSpec;
   timeoutSec: number;
@@ -72,6 +74,7 @@ export function readSettings(config: Record<string, unknown>, context: Record<st
     configDir: str(config.configDir) ?? defaultConfigDir(),
     opencodeCommand: command(config.opencodeCommand, "opencode"),
     claudeCommand: command(config.claudeCommand, "claude"),
+    agyCommand: command(config.agyCommand, defaultAgyCommand()),
     ghCommand: command(config.ghCommand, "gh"),
     timeoutSec: Number.isFinite(timeout) && timeout > 0 ? timeout : 1800,
     markDoneOnSuccess: bool(config.markDoneOnSuccess) ?? true,

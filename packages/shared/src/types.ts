@@ -1,5 +1,8 @@
-/** 실행 엔진. Claude 구독 계정은 claude-code, 나머지 공급자는 opencode로 실행한다. */
-export type Engine = "opencode" | "claude-code";
+/**
+ * 실행 엔진. Claude 구독 계정은 claude-code, Google 계정(Gemini 구독)은 antigravity(Antigravity CLI),
+ * 나머지 공급자는 opencode로 실행한다.
+ */
+export type Engine = "opencode" | "claude-code" | "antigravity";
 
 /** 분류기가 판정하는 작업 종류. 라우팅 정책의 키가 된다. */
 export type TaskType =
@@ -42,7 +45,7 @@ export interface Account {
   /** 화면 표시용: anthropic, openai, google, github-copilot, ollama 등 */
   provider: string;
   label: string;
-  /** Claude Code는 CLAUDE_CONFIG_DIR, OpenCode는 XDG_DATA_HOME으로 넘기는 폴더 */
+  /** Claude Code는 CLAUDE_CONFIG_DIR, OpenCode는 XDG_DATA_HOME으로 넘기는 폴더. Antigravity는 쓰지 않는다(운영체제 자격 증명 저장소). */
   dir: string;
   /** 월 예산(달러). 넘으면 그달에는 이 계정을 건너뛰고 대체 순서의 다음으로 넘어간다. */
   monthlyBudgetUsd?: number;
