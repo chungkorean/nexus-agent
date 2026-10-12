@@ -80,7 +80,7 @@ export interface SettingsServer {
 const BODY_LIMIT = 256 * 1024;
 const AUDIO_LIMIT = 20 * 1024 * 1024;
 /** 확장자 없이 여는 화면 */
-const PAGES: Record<string, string> = { "/studio": "/studio.html", "/voice": "/voice.html" };
+const PAGES: Record<string, string> = { "/studio": "/studio.html", "/voice": "/voice.html", "/paperclip": "/paperclip.html" };
 const ACCOUNT_ID = /^[a-z0-9][a-z0-9_-]{0,39}$/i;
 const ENGINES: Engine[] = ["claude-code", "opencode"];
 
@@ -121,6 +121,16 @@ export function createSettingsServer(opts: SettingsServerOptions): SettingsServe
 
   ensureConfigFiles(opts.configDir, opts.fallbackDir);
   const paperclipUrl = opts.telegram?.paperclipUrl ?? PaperclipClient.resolveBaseUrl();
+  // Paperclip 화면을 Nexus 창 안에 띄울 수 있게 Paperclip 주소만 허락한다(localhost와 127.0.0.1 둘 다).
+  const paperclipFrames = (() => {
+    try {
+      const u = new URL(paperclipUrl);
+      const alt = u.hostname === "localhost" ? "127.0.0.1" : u.hostname === "127.0.0.1" ? "localhost" : null;
+      return [u.origin, alt ? `${u.protocol}//${alt}${u.port ? `:${u.port}` : ""}` : null].filter(Boolean).join(" ");
+    } catch {
+      return "'none'";
+    }
+  })();
   const transcribeCommands = { whisper: opts.whisperCommand, sensevoice: opts.senseVoiceCommand };
   const bot = opts.telegram
     ? new TelegramBot({
@@ -575,7 +585,7 @@ export function createSettingsServer(opts: SettingsServerOptions): SettingsServe
       "x-content-type-options": "nosniff",
       "x-frame-options": "DENY",
       "referrer-policy": "no-referrer",
-      "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+      "content-security-policy": `default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; frame-src ${paperclipFrames}; frame-ancestors 'none'; base-uri 'none'; form-action 'none'`,
     });
     res.end(readFileSync(file));
   }

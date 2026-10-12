@@ -86,13 +86,11 @@ function formatUntil(iso) {
 }
 
 // ---------- 위쪽 메뉴 ----------
-const NAV = [["/", "설정", "settings"], ["/studio", "스튜디오", "studio"], ["/voice", "음성 비서", "voice"]];
+const NAV = [["/studio", "스튜디오", "studio"], ["/paperclip", "Paperclip", "paperclip"], ["/voice", "음성 비서", "voice"], ["/", "설정", "settings"]];
 function renderNav(active) {
   const nav = h("nav", { class: "topnav", "aria-label": "Nexus 메뉴" },
     h("a", { class: "brand", href: "/studio" }, "Nexus"),
     NAV.map(([href, text, key]) => h("a", { class: "tab", href, "aria-current": key === active ? "page" : false }, text)));
-  const paperclip = h("a", { class: "tab", href: "http://127.0.0.1:3100/", target: "_blank", rel: "noopener" }, "Paperclip ↗");
-  nav.append(paperclip);
   document.querySelector("main").prepend(nav);
-  fetch("/api/info").then((r) => r.json()).then((i) => { if (i.paperclipUrl) paperclip.href = i.paperclipUrl.replace("://localhost", "://127.0.0.1"); }).catch(() => {});
+  return nav;
 }

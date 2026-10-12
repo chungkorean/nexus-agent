@@ -45,23 +45,27 @@ export const HELP_TEXT = [
   "• \"사용량 알려 줘\"는 이번 달 사용량을 알려 드려요.",
 ].join("\n");
 
-/** 새 일을 맡길 회사·에이전트. 음성은 음성 설정을, 없으면 텔레그램 설정을 쓴다. */
-export function intakeTarget(stateDir: string, source: "voice" | "telegram"): { companyId: string; agentId: string } | null {
-  const v = source === "voice" ? readVoiceSettings(stateDir) : null;
+/** 새 일을 맡길 회사·에이전트. 음성과 스튜디오는 함께 쓰는 "일 맡길 곳"을, 없으면 텔레그램 설정을 쓴다. */
+export type Source = "voice" | "telegram" | "studio";
+
+export function intakeTarget(stateDir: string, source: Source): { companyId: string; agentId: string } | null {
+  const v = source !== "telegram" ? readVoiceSettings(stateDir) : null;
   if (v?.companyId && v.agentId) return { companyId: v.companyId, agentId: v.agentId };
   const tg = readTelegramSettings(stateDir);
   return tg.companyId && tg.agentId ? { companyId: tg.companyId, agentId: tg.agentId } : null;
 }
 
-const SOURCE_LABEL = { voice: "음성으로 보냄", telegram: "텔레그램에서 보냄" } as const;
+const SOURCE_LABEL: Record<Source, string> = { voice: "음성으로 보냄", telegram: "텔레그램에서 보냄", studio: "Nexus 스튜디오에서 보냄" };
 
 /** 말 한 덩어리를 이슈로 만든다. 첫 줄(또는 첫 문장)이 제목이다. */
-export async function createTaskIssue(deps: AssistantDeps, text: string, source: "voice" | "telegram", target = intakeTarget(deps.stateDir, source)): Promise<PaperclipIssue> {
+export async function createTaskIssue(deps: AssistantDeps, text: string, source: Source, target = intakeTarget(deps.stateDir, source)): Promise<PaperclipIssue> {
   if (!target) {
     throw new AssistantError(
       source === "voice"
         ? "일을 맡길 Paperclip 회사와 에이전트를 아직 고르지 않았어요. 음성 비서 화면의 '일 맡길 곳'에서 골라 주세요."
-        : "일을 맡길 Paperclip 회사와 에이전트를 아직 고르지 않았어요. 설정 화면의 '텔레그램' 칸에서 골라 주세요.",
+        : source === "studio"
+          ? "일을 맡길 Paperclip 회사와 에이전트를 아직 고르지 않았어요. 입력칸 위의 '맡길 곳'에서 골라 주세요."
+          : "일을 맡길 Paperclip 회사와 에이전트를 아직 고르지 않았어요. 설정 화면의 '텔레그램' 칸에서 골라 주세요.",
     );
   }
   const [firstLine, ...restLines] = text.trim().split(/\r?\n/);
@@ -143,7 +147,7 @@ export async function briefing(deps: AssistantDeps, now = new Date()): Promise<{
 }
 
 /** 말 한 덩어리에 답한다. 할 일이면 이슈를 만든다. */
-export async function respond(deps: AssistantDeps, text: string, source: "voice" | "telegram"): Promise<AssistantReply> {
+export async function respond(deps: AssistantDeps, text: string, source: Source): Promise<AssistantReply> {
   const intent = detectIntent(text);
   if (intent === "help") return { intent, text: HELP_TEXT, speech: "할 일을 말하면 이슈로 등록하고, 진행 상황이나 사용량을 물으면 알려 드려요." };
   if (intent === "usage") {

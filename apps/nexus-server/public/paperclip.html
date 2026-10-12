@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Paperclip · Nexus</title>
+<link rel="stylesheet" href="/base.css">
+<style>
+html, body { height: 100%; }
+body { display: flex; flex-direction: column; }
+main { max-width: none; margin: 0; flex: 1; display: flex; flex-direction: column; min-height: 0; padding: 10px 16px 0; }
+.topnav { margin: 0; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+.topnav .side { margin-left: auto; display: flex; gap: 6px; }
+.topnav .side a { font-size: 15px; color: var(--muted); text-decoration: none; padding: 6px 10px; border-radius: 8px; }
+.topnav .side a:hover { color: var(--text); background: var(--card); }
+.frame-wrap { flex: 1; min-height: 0; margin: 0 -16px; position: relative; }
+iframe { width: 100%; height: 100%; border: 0; display: block; background: #fff; }
+.down { max-width: 560px; margin: 48px auto; text-align: center; }
+.down h2 { font-size: 22px; margin: 0 0 8px; }
+.down p { color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <div class="frame-wrap" id="wrap"><p class="loading" style="padding:16px">Paperclip을 불러오는 중이에요...</p></div>
+</main>
+<div id="toast" role="status" aria-live="assertive"></div>
+
+<script src="/common.js"></script>
+<script>
+"use strict";
+const nav = renderNav("paperclip");
+const newWin = h("a", { href: "#", target: "_blank", rel: "noopener", title: "Paperclip을 브라우저 새 창에서 열어요" }, "새 창으로 열기 ↗");
+const reload = h("a", { href: "#", onclick: (e) => { e.preventDefault(); start(); } }, "새로 고침");
+nav.append(h("span", { class: "side" }, reload, newWin));
+
+// ?path=/issues/NEX-12 처럼 Paperclip 안의 화면을 바로 열 수 있다.
+function target(base) {
+  const p = new URLSearchParams(location.search).get("path") || "/";
+  const safe = p.startsWith("/") && !p.startsWith("//") ? p : "/";
+  return base.replace(/\/$/, "") + safe;
+}
+
+let timer = null;
+async function start() {
+  clearTimeout(timer);
+  const wrap = $("wrap");
+  let info;
+  try { info = await api("/api/paperclip"); } catch (e) { wrap.replaceChildren(h("div", { class: "down" }, h("h2", {}, "설정 화면 프로그램과 연결이 끊겼어요"), h("p", {}, e.error))); return; }
+  // Windows에서 localhost가 IPv6로 풀려 못 여는 일을 피한다.
+  const base = info.url.replace("://localhost", "://127.0.0.1");
+  newWin.href = target(base);
+  if (!info.up) {
+    wrap.replaceChildren(h("div", { class: "down" },
+      h("h2", {}, "Paperclip이 아직 꺼져 있어요"),
+      h("p", {}, "트레이 실행기가 켜는 중이면 1~2분 뒤 저절로 열려요. 계속 안 되면 작업 표시줄의 N 아이콘 메뉴에서 '다시 시작'을 눌러 주세요."),
+      h("button", { type: "button", class: "primary", onclick: start }, "다시 확인")));
+    timer = setTimeout(start, 8000);
+    return;
+  }
+  wrap.replaceChildren(h("iframe", { src: target(base), title: "Paperclip", allow: "clipboard-read; clipboard-write" }));
+}
+start();
+</script>
+</body>
+</html>

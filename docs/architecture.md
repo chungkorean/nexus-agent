@@ -105,6 +105,9 @@
 - 미디어 찾기: 한 번에 실행은 이번 실행에서 바뀐 파일(삭제 제외)을 작업 폴더에서 읽습니다. git status 경로는 저장소 맨 위 기준이라 작업 폴더에 없으면 저장소 맨 위에서 찾습니다. 작업 나누기는 결과 브랜치가 있으면 `git diff --name-only <시작 커밋>..<결과 브랜치>`로 찾아 `git show`로 꺼내고, 없으면 하위 작업 브랜치마다 같은 방법으로 찾습니다.
 - 스튜디오 API: `GET /api/archive?q=&media=1`, `GET /api/archive/item?id=`, `GET /api/archive/media?id=&name=`(Range 지원, 기록에 있는 이름만), `POST /api/archive/continue`(이슈에 `reopen: true` 댓글), `/remove`, `/open`(Windows 탐색기). 미디어 응답에는 `sandbox` CSP를 붙여 AI가 만든 SVG를 새 탭에서 열어도 스크립트가 돌지 않게 합니다.
 
+- 스튜디오 채팅: `POST /api/chat`이 음성 비서와 같은 `respond`(`assistant.ts`)를 `studio` 출처로 부릅니다. 할 일이면 이슈를 만들고 설명 끝에 "Nexus 스튜디오에서 보냄"을 붙입니다. 맡길 곳은 음성 설정의 회사·에이전트를 함께 쓰고(`GET /api/intake`, 저장은 `/api/voice/settings`), 없으면 텔레그램 설정을 따릅니다. 대화 기록은 그 창의 localStorage에 최근 30개만 둡니다.
+- Paperclip 화면: `/paperclip`이 Paperclip을 iframe으로 띄웁니다. Paperclip 서버는 X-Frame-Options나 frame-ancestors를 보내지 않고(`@paperclipai/server` 2026.1005.0 확인), local_trusted 모드는 쿠키 없이 동작해 다른 출처의 iframe에서도 열립니다. Nexus 화면의 CSP는 `frame-src`에 Paperclip 주소(localhost, 127.0.0.1 둘 다)만 허락합니다. `?path=/issues/NEX-12`로 이슈를 바로 열고, `GET /api/paperclip`으로 켜져 있는지 확인합니다. 로그인이 필요한 모드에서는 iframe에 쿠키가 안 갈 수 있어 "새 창으로 열기"를 둡니다.
+
 ### 음성 비서
 
 - 브라우저(`public/voice.html`)가 마이크 소리를 AudioWorklet으로 20ms씩 받아 소리 크기로 말의 시작과 끝을 찾고(주변 소음의 3배, 0.7초 조용하면 끝), 16kHz 모노 WAV로 바꿔 `POST /api/voice/transcribe`(`audio/wav`, `X-Nexus` 머리글, 20MB까지)로 보냅니다.

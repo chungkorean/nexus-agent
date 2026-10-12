@@ -200,6 +200,31 @@ describe("음성 비서", () => {
     expect(r.body.reply.text).toContain("이번 달 사용량");
   });
 
+  it("스튜디오 채팅으로 맡긴 일이 Paperclip 이슈가 되고, Paperclip 화면을 메뉴 안에 띄운다", async () => {
+    let r = await post("/api/chat", { text: "랜딩 페이지 첫 화면 그림 시안 만들어 줘" });
+    expect(r.status).toBe(400);
+    expect(r.body.error).toContain("맡길 곳");
+
+    const intake = await get("/api/intake?companyId=co-1");
+    expect(intake.body.companies[0]).toMatchObject({ id: "co-1" });
+    expect(intake.body.agents.length).toBeGreaterThan(0);
+    await post("/api/voice/settings", { companyId: "co-1", agentId: "agent-dev" });
+    expect((await get("/api/intake")).body).toMatchObject({ companyId: "co-1", agentId: "agent-dev" });
+
+    r = await post("/api/chat", { text: "랜딩 페이지 첫 화면 그림 시안 만들어 줘\n세 가지로, 밝은 색으로" });
+    expect(r.body.reply).toMatchObject({ intent: "task", issue: { identifier: "NEX-101" } });
+    expect(paperclip.created[0]).toMatchObject({ companyId: "co-1", input: { title: "랜딩 페이지 첫 화면 그림 시안 만들어 줘", assigneeAgentId: "agent-dev" } });
+    expect(paperclip.created[0]!.input.description).toContain("세 가지로");
+    expect(paperclip.created[0]!.input.description).toContain("Nexus 스튜디오에서 보냄");
+    expect((await post("/api/chat", { text: "  " })).status).toBe(400);
+
+    expect((await get("/api/paperclip")).body).toMatchObject({ url: paperclip.url, up: true });
+    const page = await fetch(new URL("/paperclip", base));
+    expect(page.status).toBe(200);
+    const port = new URL(paperclip.url).port;
+    expect(page.headers.get("content-security-policy")).toContain(`frame-src http://127.0.0.1:${port} http://localhost:${port};`);
+  });
+
   it("SenseVoice 엔진으로 바꿔 받아쓴다", async () => {
     let v = await post("/api/voice/settings", { engine: "sensevoice", language: "ko" });
     expect(v.body.settings.engine).toBe("sensevoice");

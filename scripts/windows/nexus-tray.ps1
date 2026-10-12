@@ -199,7 +199,7 @@ $menu.Items.Add($statusItem) | Out-Null
 $menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator)) | Out-Null
 $openItem = Add-Item "Nexus 앱 열기 (스튜디오, 음성 비서)" { Open-App }
 $openItem.Font = New-Object System.Drawing.Font($openItem.Font, [System.Drawing.FontStyle]::Bold)
-if (-not $NoPaperclip) { Add-Item "Paperclip 열기" { Start-Process $PaperclipUrl } | Out-Null }
+if (-not $NoPaperclip) { Add-Item "Paperclip 열기" { Open-App "http://127.0.0.1:$SettingsPort/paperclip" } | Out-Null }
 Add-Item "음성 비서 열기" { Open-App "http://127.0.0.1:$SettingsPort/voice" } | Out-Null
 Add-Item "Nexus 설정 열기 (모델, 사용량, 예산)" { Open-App $SettingsUrl } | Out-Null
 Add-Item "기록(로그) 폴더 열기" { Start-Process explorer.exe $LogDir } | Out-Null

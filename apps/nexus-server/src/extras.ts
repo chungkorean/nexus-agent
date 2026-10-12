@@ -76,6 +76,23 @@ export function createExtras(o: ExtrasOptions) {
       return found;
     },
 
+    // 스튜디오 채팅의 "맡길 곳". 음성 비서와 같은 설정을 쓴다.
+    "/api/intake": async (url) => {
+      const s = readVoiceSettings(o.stateDir);
+      const q = url.searchParams.get("companyId");
+      const targets = await o.targets(q && ID_LIKE.test(q) ? q : s.companyId);
+      return { companyId: s.companyId ?? null, agentId: s.agentId ?? null, ...targets };
+    },
+
+    "/api/paperclip": async () => {
+      let up = false;
+      try {
+        const res = await fetch(o.paperclipUrl, { signal: AbortSignal.timeout(2500) });
+        up = res.status < 500;
+      } catch {}
+      return { url: o.paperclipUrl, up };
+    },
+
     "/api/voice": async (url) => {
       const s = readVoiceSettings(o.stateDir);
       const q = url.searchParams.get("companyId");
@@ -168,6 +185,12 @@ export function createExtras(o: ExtrasOptions) {
     "/api/voice/install-ffmpeg": () => {
       o.installer.startFfmpeg(voiceDir());
       return { ok: true, message: "ffmpeg를 받기 시작했어요. 1~2분 걸려요.", install: o.installer.state };
+    },
+
+    "/api/chat": async (body) => {
+      const text = str(body.text, 8000);
+      if (!text) throw new HttpError(400, "보낼 내용을 적어 주세요.");
+      return { ok: true, reply: await respond(o.assistant(), text, "studio") };
     },
 
     "/api/voice/command": async (body) => {

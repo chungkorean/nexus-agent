@@ -37,6 +37,26 @@ header p { margin: 0 0 16px; color: var(--muted); }
 .tile video { width: 100%; max-height: 260px; display: block; }
 .tile .cap { padding: 8px 10px; font-size: 14px; color: var(--muted); display: flex; justify-content: space-between; gap: 6px; }
 .tile .cap a { color: var(--accent); }
+/* 채팅으로 맡기기 */
+.chat { margin: 0 0 22px; padding: 16px 18px; }
+.chat-head { display: flex; justify-content: space-between; align-items: center; gap: 8px 14px; flex-wrap: wrap; margin-bottom: 10px; }
+.chat-head h2 { margin: 0; font-size: 19px; }
+.target { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 15px; color: var(--muted); }
+.target select { font: inherit; font-size: 15px; color: var(--text); background: var(--card); border: 1.5px solid var(--line); border-radius: 8px; padding: 6px 8px; min-height: 38px; width: auto; max-width: 200px; }
+@media (max-width: 640px) { .target { width: 100%; } .target select { flex: 1; max-width: none; min-width: 0; } }
+.chat-log { display: flex; flex-direction: column; gap: 8px; max-height: 320px; overflow-y: auto; margin-bottom: 10px; }
+.chat-log:empty { display: none; }
+.bubble { max-width: 85%; padding: 9px 13px; border-radius: 14px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 16px; }
+.bubble.me { align-self: flex-end; background: var(--accent); color: #fff; border-bottom-right-radius: 4px; }
+.bubble.bot { align-self: flex-start; background: var(--bg); border: 1px solid var(--line); border-bottom-left-radius: 4px; }
+.bubble.bot.bad { border-color: var(--bad); color: var(--bad); }
+.bubble a { color: var(--accent); font-weight: 700; }
+.bubble .when { display: block; font-size: 12px; opacity: .7; margin-top: 2px; }
+.chat-form { display: flex; gap: 8px; align-items: flex-end; }
+.chat-form textarea { flex: 1; font: inherit; color: var(--text); background: var(--card); border: 1.5px solid var(--line); border-radius: 12px; padding: 10px 12px; min-height: 48px; max-height: 200px; resize: none; }
+.chat-form textarea:focus { outline: 3px solid var(--focus); outline-offset: 2px; }
+.chat-form button { min-height: 48px; }
+.chat .help { margin: 6px 0 0; font-size: 14px; }
 .empty { border: 1.5px dashed var(--line); border-radius: 14px; padding: 32px 16px; color: var(--muted); text-align: center; }
 
 /* 작업 자세히 */
@@ -72,8 +92,20 @@ header p { margin: 0 0 16px; color: var(--muted); }
 <main>
   <header>
     <h1>스튜디오</h1>
-    <p>AI가 끝낸 작업과 만든 그림·소리를 모아 봐요. 지난 작업을 골라 이어서 맡길 수 있어요.</p>
+    <p>여기서 일을 맡기고, AI가 끝낸 작업과 만든 그림·소리를 모아 봐요. 지난 작업을 골라 이어서 맡길 수도 있어요.</p>
   </header>
+  <section class="card chat" aria-labelledby="chatTitle">
+    <div class="chat-head">
+      <h2 id="chatTitle">Nexus에게 맡기기</h2>
+      <div class="target" id="target"><span>맡길 곳</span><select id="tCompany" aria-label="맡길 회사"></select><select id="tAgent" aria-label="맡길 에이전트"></select></div>
+    </div>
+    <div class="chat-log" id="chatLog" aria-live="polite"></div>
+    <form class="chat-form" id="chatForm">
+      <textarea id="chatText" rows="1" placeholder="할 일을 적어 보세요" aria-label="맡길 일"></textarea>
+      <button type="submit" class="primary" id="chatSend">보내기</button>
+    </form>
+    <p class="help">예: "랜딩 페이지 첫 화면 그림을 세 가지 시안으로 만들어 줘". Enter로 보내고 Shift+Enter로 줄을 바꿔요. 할 일은 Paperclip 이슈로 등록되고 끝나면 아래에 결과가 쌓여요. "진행 상황 알려 줘", "사용량 알려 줘"도 물어볼 수 있어요.</p>
+  </section>
   <div id="notice" class="notice" role="status" aria-live="polite"></div>
   <div class="toolbar">
     <input type="search" id="q" placeholder="이슈 번호, 제목, 모델로 찾기" aria-label="작업 찾기" autocomplete="off">
@@ -120,7 +152,7 @@ function render() {
       ? "찾는 작업이 없어요."
       : view === "media"
         ? "아직 AI가 만든 그림이나 소리가 없어요. 작업 폴더에 이미지·오디오 파일을 만든 작업이 끝나면 여기에 모여요."
-        : "아직 끝난 작업이 없어요. Paperclip에서 Nexus 에이전트에게 일을 맡기면 끝날 때마다 여기에 쌓여요."));
+        : "아직 끝난 작업이 없어요. 위 입력칸이나 Paperclip에서 일을 맡기면 끝날 때마다 여기에 쌓여요."));
     return;
   }
   if (view === "media") {
@@ -274,6 +306,77 @@ function md(src) {
   }
   return frag;
 }
+
+// ---------- 채팅으로 맡기기 ----------
+const CHAT_KEY = "nexus.studio.chat";
+let chat = [];
+try { chat = JSON.parse(localStorage.getItem(CHAT_KEY) || "[]"); } catch (e) { chat = []; }
+function saveChat() { try { localStorage.setItem(CHAT_KEY, JSON.stringify(chat.slice(-30))); } catch (e) { /* 저장 못 해도 괜찮다 */ } }
+
+function bubble(m) {
+  const body = [m.text];
+  if (m.issue) body.push(" ", h("a", { href: "/paperclip?path=" + encodeURIComponent("/issues/" + (m.issue.identifier || m.issue.id)) }, "Paperclip에서 보기"));
+  return h("div", { class: "bubble " + m.who + (m.bad ? " bad" : "") }, body, h("span", { class: "when" }, formatUntil(m.at)));
+}
+function renderChat() {
+  const log = $("chatLog");
+  log.replaceChildren(...chat.map(bubble));
+  log.scrollTop = log.scrollHeight;
+}
+function addChat(m) { chat.push({ at: new Date().toISOString(), ...m }); chat = chat.slice(-30); saveChat(); renderChat(); }
+
+async function sendChat() {
+  const box = $("chatText");
+  const text = box.value.trim();
+  if (!text) { box.focus(); return; }
+  addChat({ who: "me", text });
+  box.value = "";
+  fitBox();
+  $("chatSend").disabled = true;
+  try {
+    const r = await api("/api/chat", { text });
+    addChat({ who: "bot", text: r.reply.text, issue: r.reply.issue || null });
+  } catch (e) {
+    addChat({ who: "bot", text: e.error, bad: true });
+  }
+  $("chatSend").disabled = false;
+  box.focus();
+}
+function fitBox() { const b = $("chatText"); b.style.height = "auto"; b.style.height = Math.min(200, b.scrollHeight + 3) + "px"; }
+$("chatForm").addEventListener("submit", (e) => { e.preventDefault(); sendChat(); });
+$("chatText").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); sendChat(); } });
+$("chatText").addEventListener("input", fitBox);
+
+// 맡길 곳: 음성 비서와 같은 설정을 쓴다.
+async function loadTarget(companyId) {
+  let r;
+  try { r = await api("/api/intake" + (companyId ? "?companyId=" + encodeURIComponent(companyId) : "")); } catch (e) { return; }
+  const company = companyId || r.companyId || "";
+  const opts = (list, current, empty) => [h("option", { value: "" }, empty), ...list.map((x) => h("option", { value: x.id, selected: x.id === current }, x.name))];
+  if (r.paperclipError && !r.companies.length) {
+    $("tCompany").replaceChildren(h("option", { value: "" }, "Paperclip 꺼짐"));
+    $("tAgent").replaceChildren();
+    $("tAgent").hidden = true;
+    return;
+  }
+  $("tAgent").hidden = false;
+  $("tCompany").replaceChildren(...opts(r.companies, company, "회사 고르기"));
+  const nexus = r.agents.filter((a) => a.adapterType === "nexus_dispatch");
+  const agents = nexus.length ? nexus : r.agents;
+  $("tAgent").replaceChildren(...opts(agents, company === r.companyId ? r.agentId : "", "에이전트 고르기"));
+  // 회사에 Nexus 에이전트가 하나뿐이면 바로 고른다.
+  if (company && !$("tAgent").value && nexus.length === 1) { $("tAgent").value = nexus[0].id; saveTarget(); }
+}
+async function saveTarget() {
+  try {
+    await api("/api/voice/settings", { companyId: $("tCompany").value, agentId: $("tAgent").value });
+    if ($("tAgent").value) toast("이제 여기서 보낸 일은 " + $("tAgent").selectedOptions[0].textContent + "에게 맡겨요.");
+  } catch (e) { toast(e.error, "bad"); }
+}
+$("tCompany").onchange = async () => { await api("/api/voice/settings", { companyId: $("tCompany").value }).catch(() => {}); loadTarget($("tCompany").value); };
+$("tAgent").onchange = saveTarget;
+renderChat();
+loadTarget();
 
 // ---------- 시작 ----------
 let searchTimer = null;
