@@ -32,16 +32,53 @@ function Open-App([string]$url = $AppUrl) {
   Start-Process -FilePath $browser -ArgumentList @("--app=$url", "--user-data-dir=`"$appProfile`"", "--window-size=1280,880", "--no-first-run", "--no-default-browser-check")
 }
 
+$Repo = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
+
+# 지금 떠 있는 설정 화면이 이 저장소의 최신 코드인지 본다.
+# git pull 전에 켠 서버(또는 그 서버를 띄운 예전 트레이)가 남아 있으면 새 화면(/studio 등)이 없다.
+function Test-StaleSettings {
+  $head = $null
+  try { $head = (& git -C $Repo rev-parse HEAD 2>$null | Select-Object -First 1) } catch { }
+  try {
+    $info = Invoke-RestMethod -Uri "http://127.0.0.1:$SettingsPort/api/info" -TimeoutSec 3 -UseBasicParsing
+  } catch {
+    # 응답은 하는데 /api/info가 없으면 예전 서버, 아예 꺼져 있으면 오래된 게 아니다.
+    return [bool]($_.Exception.Response)
+  }
+  if (-not $info.build) { return $true }
+  return [bool]($head -and $info.build -ne $head)
+}
+
+# 설정 화면 포트를 쓰는 node 프로세스를 끈다(다른 프로그램은 건드리지 않는다).
+function Stop-StaleSettings {
+  try {
+    $pids = @(Get-NetTCPConnection -LocalPort $SettingsPort -State Listen -ErrorAction Stop | Select-Object -ExpandProperty OwningProcess -Unique)
+  } catch { return }
+  foreach ($p in $pids) {
+    $proc = Get-Process -Id $p -ErrorAction SilentlyContinue
+    if ($proc -and $proc.ProcessName -eq "node") { Stop-Process -Id $p -Force -ErrorAction SilentlyContinue }
+  }
+  Start-Sleep -Milliseconds 800
+}
+
 # 이미 켜져 있으면 하나만 둔다.
 $created = $false
 $mutex = New-Object System.Threading.Mutex($true, "Local\NexusTray", [ref]$created)
+$stale = Test-StaleSettings
+if (-not $created -and $stale) {
+  # 업데이트 전에 켠 트레이가 남아 있다. 그 트레이와 예전 서버를 끄고 새로 켠다.
+  Get-CimInstance Win32_Process -Filter "Name='powershell.exe' OR Name='pwsh.exe'" -ErrorAction SilentlyContinue |
+    Where-Object { $_.ProcessId -ne $PID -and $_.CommandLine -like "*nexus-tray.ps1*" } |
+    ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+  try { $created = $mutex.WaitOne(5000) } catch [System.Threading.AbandonedMutexException] { $created = $true }
+}
+if ($stale) { Stop-StaleSettings }
 if (-not $created) {
   if ($OpenApp) { Open-App; exit 0 }
   [System.Windows.Forms.MessageBox]::Show("Nexus가 이미 켜져 있어요. 화면 오른쪽 아래 작업 표시줄의 N 아이콘을 눌러 주세요.", "Nexus") | Out-Null
   exit 0
 }
 
-$Repo = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $LogDir = Join-Path $DataDir "logs"
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 $PaperclipUrl = "http://localhost:$PaperclipPort"

@@ -103,6 +103,17 @@ function findPublicDir(): string {
   return path.join(here, "public");
 }
 
+/** 빌드할 때 남긴 커밋. 트레이 실행기가 오래된 서버를 알아보는 데 쓴다. 소스로 돌리면 null. */
+function readBuild(): string | null {
+  try {
+    const here = path.dirname(fileURLToPath(import.meta.url));
+    const commit = JSON.parse(readFileSync(path.join(here, "build.json"), "utf8")).commit;
+    return typeof commit === "string" ? commit : null;
+  } catch {
+    return null;
+  }
+}
+
 export function createSettingsServer(opts: SettingsServerOptions): SettingsServer {
   const publicDir = path.resolve(opts.publicDir ?? findPublicDir());
   const launcher = opts.launcher ?? defaultLauncher;
@@ -134,6 +145,7 @@ export function createSettingsServer(opts: SettingsServerOptions): SettingsServe
     commands: transcribeCommands,
     installer,
     targets: (companyId) => paperclipTargets(companyId),
+    build: readBuild(),
   });
 
   function todayCost(): number {

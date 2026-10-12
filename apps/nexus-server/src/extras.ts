@@ -15,6 +15,7 @@ export interface ExtrasOptions {
   assistant: () => AssistantDeps;
   commands?: TranscribeCommands;
   installer: ToolInstaller;
+  build?: string | null;
   targets: (companyId: string | null | undefined) => Promise<{ companies: Array<{ id: string; name: string }>; agents: Array<{ id: string; name: string; adapterType: string }>; paperclipError: string | null }>;
 }
 
@@ -58,7 +59,7 @@ export function createExtras(o: ExtrasOptions) {
   }
 
   const get: Record<string, (url: URL) => Promise<object> | object> = {
-    "/api/info": () => ({ paperclipUrl: o.paperclipUrl, platform: process.platform }),
+    "/api/info": () => ({ paperclipUrl: o.paperclipUrl, platform: process.platform, build: o.build ?? null }),
 
     "/api/archive": (url) => ({
       items: listArchive(o.stateDir, {
