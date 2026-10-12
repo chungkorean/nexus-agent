@@ -975,8 +975,8 @@ function renderModels() {
     d.accounts = d.accounts.filter((id) => S.accounts.some((acc) => acc.id === id));
     // 이 모델 회사의 계정만 먼저 보여 준다. 다른 회사 계정은 접어 둔다(이미 고른 것은 그대로 보임).
     // '그 밖의 서비스'로 등록한 계정은 이름에 회사 이름(예: Xiaomi_MiMo_pro)이 있으면 그 회사 계정으로 본다.
-    const nameHit = (acc) => acc.provider === "opencode" && [prov, providerName(prov).split(/[ (]/)[0]].some((w) => w && (acc.id + " " + acc.label).toLowerCase().includes(w.toLowerCase()));
-    // '그 밖의 서비스'(provider opencode)로 등록한 계정은 OpenCode Zen 계정으로 보지 않는다(이름에 회사가 있을 때만).
+    const nameHit = (acc) => prov !== "opencode" && acc.provider === "opencode" && [prov, providerName(prov).split(/[ (]/)[0]].some((w) => w && (acc.id + " " + acc.label).toLowerCase().includes(w.toLowerCase()));
+    // OpenCode Zen 카드에서는 이름 맞추기를 하지 않는다. 계정 이름(opencode-nvidia 같은)에 'opencode'가 들어가도 Zen 계정이 아니다.
     const mine = same.filter((acc) => d.engine !== "opencode" || (acc.provider === prov && prov !== "opencode") || nameHit(acc) || d.accounts.includes(acc.id));
     const others = same.filter((acc) => !mine.includes(acc));
     const checkRow = (acc) => {

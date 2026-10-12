@@ -86,7 +86,7 @@
 
 ### 트레이 실행기
 
-- `scripts\windows\nexus-tray.ps1`(PowerShell 5.1, 추가 설치 없음)이 `npx --yes paperclipai@latest run`과 설정 서버를 숨은 창으로 띄우고 `NotifyIcon`으로 관리합니다. `scripts\nexus-tray.cmd`가 이를 숨은 창으로 실행합니다.
+- `scripts\windows\nexus-tray.ps1`(PowerShell 5.1, 추가 설치 없음)이 `node scripts/paperclip-run.mjs run`(한 번 설치해 둔 Paperclip을 바로 켜고, 새 버전은 뒤에서 다른 폴더에 받아 다음에 씀)과 설정 서버를 숨은 창으로 띄우고 `NotifyIcon`으로 관리합니다. `scripts\nexus-tray.cmd`가 이를 숨은 창으로 실행합니다.
 - 포트(3100, 3200)가 이미 열려 있으면 띄우지 않습니다. 5초마다 포트를 확인해, 직접 띄운 프로세스가 끝났으면 10분에 3번까지 다시 띄웁니다.
 - 끌 때는 직접 띄운 프로세스만 `taskkill /T`로 끕니다. 시작 프로그램 등록은 Startup 폴더의 바로 가기로 합니다.
 

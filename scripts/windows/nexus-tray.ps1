@@ -35,6 +35,11 @@ public static class NxWin {
   [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr h);
   [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int cmd);
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
+  [DllImport("user32.dll")] static extern bool PostMessage(IntPtr h, uint msg, IntPtr w, IntPtr l);
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetWindowText(IntPtr h, StringBuilder s, int n);
+  public static string Title(IntPtr h) { var sb = new StringBuilder(256); GetWindowText(h, sb, 256); return sb.ToString(); }
+  // 창에 닫기(WM_CLOSE)를 보낸다. 트레이로 숨겨 둔 창을 Nexus를 끌 때 함께 닫는다.
+  public static void Close(IntPtr h) { PostMessage(h, 0x0010, IntPtr.Zero, IntPtr.Zero); }
   // 주어진 프로세스들의 제목 있는 브라우저 창(보이는 것만)
   public static IntPtr[] Visible(int[] pids) {
     var set = new HashSet<uint>();
@@ -154,13 +159,14 @@ function Find-Update {
   if (-not (Test-Path (Join-Path $Repo ".git"))) { return $null }
   if (-not (Get-Command git -ErrorAction SilentlyContinue)) { return $null }
   $env:GIT_TERMINAL_PROMPT = "0"
-  # 받는 동안 켜는 중 화면이 멈추지 않게 따로 돌리고 기다린다(20초가 넘으면 그만둔다).
+  # 받는 동안 켜는 중 화면이 멈추지 않게 따로 돌리고 기다린다(12초가 넘으면 그만두고 지금 버전으로 켠다).
   $p = Start-Process -FilePath "git" -ArgumentList @("-C", "`"$Repo`"", "-c", "credential.interactive=never", "fetch", "--quiet", "origin", "main") -WindowStyle Hidden -PassThru
   $null = $p.Handle  # 종료 코드를 읽으려면 핸들을 잡아 둬야 한다
-  $until = (Get-Date).AddSeconds(20)
+  $until = (Get-Date).AddSeconds(12)
   while (-not $p.HasExited -and (Get-Date) -lt $until) { [System.Windows.Forms.Application]::DoEvents(); Start-Sleep -Milliseconds 50 }
   if (-not $p.HasExited) { try { $p.Kill() } catch { }; return $null }
   if ($p.ExitCode -ne 0) { return $null }
+  $ErrorActionPreference = "Continue"  # git이 오류를 내도 트레이가 멈추지 않게
   $remoteJson = (& git -C $Repo show origin/main:package.json 2>$null) -join "`n"
   $remote = Get-NexusVersion $remoteJson
   $local = Get-LocalVersion
@@ -198,13 +204,6 @@ function Restart-Tray {
   Start-Process -FilePath (Get-Process -Id $PID).Path -ArgumentList $argList -WindowStyle Hidden
 }
 
-if ($OpenApp) { Show-Splash }
-$update = Find-Update
-if ($update) {
-  if (Install-Update $update) { Restart-Tray; exit 0 }
-}
-$env:NEXUS_JUST_UPDATED = $null
-
 # 지금 떠 있는 설정 화면이 이 저장소의 최신 코드인지 본다.
 # git pull 전에 켠 서버(또는 그 서버를 띄운 예전 트레이)가 남아 있으면 새 화면(/studio 등)이 없다.
 function Test-StaleSettings {
@@ -219,6 +218,27 @@ function Test-StaleSettings {
   if (-not $info.build) { return $true }
   return [bool]($head -and $info.build -ne $head)
 }
+
+# 이미 켜진 트레이가 있고 같은 버전이면, 그 트레이에 앱 창을 열어 달라고 알리고 바로 끝낸다.
+# (예전에는 새로 켠 쪽이 따로 창을 열어서, 처음 트레이가 숨겨 둔 창이 남아 X로 꺼지지 않을 때가 있었다.)
+$showEvent = New-Object System.Threading.EventWaitHandle($false, [System.Threading.EventResetMode]::AutoReset, "Local\NexusTrayShow")
+$running = $null
+if ([System.Threading.Mutex]::TryOpenExisting("Local\NexusTray", [ref]$running)) {
+  $running.Dispose()
+  if (-not (Test-StaleSettings)) {
+    if ($OpenApp) { [void]$showEvent.Set(); exit 0 }
+    [System.Windows.Forms.MessageBox]::Show("Nexus가 이미 켜져 있어요. 화면 오른쪽 아래 작업 표시줄의 N 아이콘을 눌러 주세요.", "Nexus") | Out-Null
+    exit 0
+  }
+}
+
+if ($OpenApp) { Show-Splash }
+if ($script:splash) { $script:splashDetail.Text = "새 버전이 있는지 확인하는 중이에요." ; [System.Windows.Forms.Application]::DoEvents() }
+$update = Find-Update
+if ($update) {
+  if (Install-Update $update) { Restart-Tray; exit 0 }
+}
+$env:NEXUS_JUST_UPDATED = $null
 
 # 설정 화면 포트를 쓰는 node 프로세스를 끈다(다른 프로그램은 건드리지 않는다).
 function Stop-StaleSettings {
@@ -245,13 +265,20 @@ if (-not $created -and $stale) {
 }
 if ($stale) { Stop-StaleSettings }
 if (-not $created) {
-  if ($OpenApp) { Close-Splash; Open-App; exit 0 }
+  if ($OpenApp) { Close-Splash; [void]$showEvent.Set(); exit 0 }
   [System.Windows.Forms.MessageBox]::Show("Nexus가 이미 켜져 있어요. 화면 오른쪽 아래 작업 표시줄의 N 아이콘을 눌러 주세요.", "Nexus") | Out-Null
   exit 0
 }
 
 $LogDir = Join-Path $DataDir "logs"
 New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
+# 앱 창과 켜고 끄는 일을 기록한다(X로 안 꺼지거나 오래 걸릴 때 원인을 찾으려고).
+$AppLog = Join-Path $LogDir "app-windows.log"
+function Write-AppLog([string]$text) {
+  try { Add-Content -Path $AppLog -Encoding UTF8 -Value ((Get-Date -Format "yyyy-MM-dd HH:mm:ss") + " " + $text) } catch { }
+}
+$script:startedAt = Get-Date
+Write-AppLog ("트레이 켬 (버전 " + (Get-LocalVersion) + ", 폴더 " + $Repo + ")")
 $PaperclipUrl = "http://localhost:$PaperclipPort"
 $SettingsUrl = "http://127.0.0.1:$SettingsPort/"
 $StartupLink = Join-Path ([Environment]::GetFolderPath("Startup")) "Nexus.lnk"
@@ -290,9 +317,12 @@ function Start-NexusService($svc) {
 }
 
 function Stop-NexusService($svc) {
+  # taskkill이 "자식 프로세스를 끝내지 못했어요" 같은 말을 오류 출력에 쓰면 PowerShell 5.1은 그것을 예외로 바꾼다.
+  # 그러면 종료가 중간에 멈춰 X를 눌러도 트레이가 남았다. 여기서는 오류를 무시하고 끝까지 끈다.
+  $ErrorActionPreference = "Continue"
   if ($svc.Process -and -not $svc.Process.HasExited) {
-    & taskkill.exe /PID $svc.Process.Id /T /F 2>&1 | Out-Null
-    if ($svc.Name -eq "Paperclip") { Stop-PaperclipDb | Out-Null }
+    try { Start-Process -FilePath "taskkill.exe" -ArgumentList @("/PID", $svc.Process.Id, "/T", "/F") -WindowStyle Hidden -Wait } catch { }
+    if ($svc.Name -eq "Paperclip") { try { Stop-PaperclipDb | Out-Null } catch { } }
   }
   $svc.Process = $null
   # 이 트레이가 띄우지 않은(예전 트레이나 직접 켠) 설정 화면이 남아 있으면 새로 켜지지 않으므로 그것도 끈다.
@@ -303,7 +333,8 @@ $env:NEXUS_NO_BROWSER = "1"
 $env:NEXUS_SETTINGS_PORT = "$SettingsPort"
 $services = @()
 if (-not $NoPaperclip) {
-  $services += New-NexusService "Paperclip" $PaperclipPort "npx --yes paperclipai@latest run" (Join-Path $LogDir "paperclip.log")
+    # 한 번 설치해 둔 Paperclip을 바로 켠다(새 버전은 켜진 뒤 뒤에서 받아 다음에 씀). scripts\paperclip-run.mjs 참고.
+  $services += New-NexusService "Paperclip" $PaperclipPort "node scripts\paperclip-run.mjs run" (Join-Path $LogDir "paperclip.log")
 }
 $settingsMain = Join-Path $Repo "apps\nexus-server\dist\main.mjs"
 $services += New-NexusService "설정 화면" $SettingsPort "node scripts\build-settings.mjs && node `"$settingsMain`"" (Join-Path $LogDir "settings.log")
@@ -397,11 +428,18 @@ $autoItem = Add-Item "Windows를 켤 때 자동으로 실행" {
 $autoItem.Checked = Test-Path $StartupLink
 Add-Item "바탕 화면에 Nexus 앱 바로 가기 만들기" { New-Shortcut $DesktopLink -App; Notify "Nexus" "바탕 화면에 Nexus 바로 가기를 만들었어요. 두 번 누르면 Nexus 앱이 열려요." } | Out-Null
 $menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator)) | Out-Null
-function Stop-All {
-  $timer.Stop()
-  if ($appTimer) { $appTimer.Stop() }
-  foreach ($s in $services) { Stop-NexusService $s }
-  $tray.Visible = $false
+function Stop-All([string]$why = "메뉴의 종료") {
+  # 어느 단계에서 오류가 나도 끝까지 가서 반드시 트레이를 끈다.
+  $ErrorActionPreference = "Continue"
+  Write-AppLog ("모두 끔: " + $why)
+  try { $timer.Stop() } catch { }
+  try { if ($appTimer) { $appTimer.Stop() } } catch { }
+  try { if ($showTimer) { $showTimer.Stop() } } catch { }
+  try { $tray.Visible = $false } catch { }
+  Close-Splash
+  # 트레이로 숨겨 둔 창도 닫는다(그대로 두면 보이지 않는 브라우저가 남는다).
+  foreach ($h in @($script:HiddenWindows)) { try { [NxWin]::Close($h) } catch { } }
+  foreach ($s in $services) { try { Stop-NexusService $s } catch { } }
   [System.Windows.Forms.Application]::Exit()
 }
 Add-Item "종료" { Stop-All } | Out-Null
@@ -433,12 +471,19 @@ function Update-Status {
   $text = "Nexus: " + ($parts -join ", ")
   $tray.Text = if ($text.Length -gt 63) { $text.Substring(0, 63) } else { $text }
   $statusItem.Text = ($parts -join " · ")
-  if ($script:splash) { $script:splashDetail.Text = ($parts -join " · ") }
+  if ($script:splash) {
+    $detail = ($parts -join " · ")
+    # Paperclip을 처음 설치하는 중이면 알려 준다(scripts\paperclip-run.mjs가 남기는 상태).
+    $pcStatus = Join-Path $DataDir "paperclip\status.txt"
+    if ((Test-Path $pcStatus) -and ((Get-Content $pcStatus -Raw -ErrorAction SilentlyContinue) -like "installing*")) { $detail = "Paperclip을 처음 설치하는 중이에요. 몇 분 걸릴 수 있어요." }
+    $script:splashDetail.Text = $detail
+  }
   if ($allUp -and -not $script:announced) {
     $script:announced = $true
+    Write-AppLog ("모두 켜짐 (" + [int]((Get-Date) - $script:startedAt).TotalSeconds + "초)")
     Close-Splash
     Notify "Nexus가 켜졌어요" "아이콘을 두 번 누르면 Nexus 앱이 열려요. 오른쪽 버튼을 누르면 메뉴가 나와요."
-    if ($OpenApp) { Open-App }
+    if ($OpenApp -or $script:openWhenUp) { $script:openWhenUp = $false; Open-App }
   }
 }
 
@@ -449,28 +494,48 @@ $timer.add_Tick({ try { Update-Status } catch { } })
 $timer.Start()
 Update-Status
 
-# 앱 창 지켜보기: '_'는 트레이로 숨기고, 마지막 창을 'X'로 닫으면 모두 끈다.
+# 앱 창 지켜보기: '_'는 트레이로 숨기고, 보이던 창을 'X'로 모두 닫으면 다 끈다.
+# 무슨 일이 있었는지 기록(로그) 폴더의 app-windows.log에 남긴다.
 $script:appSeen = $false
 $script:appGone = 0
+$script:lastShown = 0
 $script:hideTold = $false
+$script:appSig = ""
 function Watch-AppWindows {
   $pids = Get-AppPids
   $visible = if ($pids.Count) { @([NxWin]::Visible([int[]]$pids)) } else { @() }
+  $minimized = 0
   foreach ($h in $visible) {
     if ([NxWin]::IsIconic($h)) {
+      $minimized++
       [NxWin]::ShowWindow($h, 0) | Out-Null
       if (-not $script:HiddenWindows.Contains($h)) { [void]$script:HiddenWindows.Add($h) }
       if (-not $script:hideTold) { $script:hideTold = $true; Notify "Nexus" "창을 트레이로 숨겼어요. N 아이콘을 두 번 누르면 다시 열려요. 완전히 끄려면 창의 X를 누르세요." }
     }
   }
+  $shownWin = @($visible | Where-Object { -not [NxWin]::IsIconic($_) -and [NxWin]::IsWindowVisible($_) })
   $hidden = @($script:HiddenWindows | Where-Object { [NxWin]::IsWindow($_) })
-  $alive = @($visible | Where-Object { -not [NxWin]::IsIconic($_) }).Count + $hidden.Count
-  if ($alive -gt 0) { $script:appSeen = $true; $script:appGone = 0; return }
+  $sig = "보이는 창 " + $shownWin.Count + " (" + (($shownWin | ForEach-Object { [NxWin]::Title($_) }) -join " | ") + "), 숨긴 창 " + $hidden.Count + ", 브라우저 프로세스 " + $pids.Count
+  if ($sig -ne $script:appSig) { $script:appSig = $sig; Write-AppLog $sig }
+  if ($shownWin.Count -gt 0) { $script:appSeen = $true; $script:appGone = 0; $script:lastShown = $shownWin.Count; return }
   if (-not $script:appSeen) { return }
-  # 페이지를 옮길 때 잠깐 창이 없어 보일 수 있어 두 번 연속 없을 때만 끈다.
+  # 방금 '_'로 숨겼거나, 전부 숨겨 둔 상태면 그대로 둔다.
+  if ($hidden.Count -gt 0 -and ($minimized -gt 0 -or $script:lastShown -eq 0)) { $script:lastShown = 0; $script:appGone = 0; return }
+  # 보이던 창이 사라졌다(X). 페이지를 옮길 때 잠깐 안 보일 수 있어 두 번 연속일 때만 끈다.
   $script:appGone++
-  if ($script:appGone -ge 2) { Stop-All }
+  if ($script:appGone -ge 2) { Stop-All "앱 창을 X로 닫음" }
 }
+# 나중에 Nexus.exe를 다시 누르면 그 실행기가 이 트레이에 알린다. 숨긴 창을 다시 보여 주거나 새로 연다.
+$script:openWhenUp = $false
+$showTimer = New-Object System.Windows.Forms.Timer
+$showTimer.Interval = 400
+$showTimer.add_Tick({
+  try {
+    if (-not $showEvent.WaitOne(0)) { return }
+    if ($script:announced) { Open-App } else { $script:openWhenUp = $true }
+  } catch { }
+})
+$showTimer.Start()
 $appTimer = New-Object System.Windows.Forms.Timer
 $appTimer.Interval = 2000
 $appTimer.add_Tick({ try { Watch-AppWindows } catch { } })
