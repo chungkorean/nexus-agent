@@ -2,7 +2,7 @@
 // 결과: apps/nexus-server/dist/main.mjs, dist/public/, apps/nexus-server/config/(기본 설정)
 import { build } from "esbuild";
 import { execFileSync } from "node:child_process";
-import { cpSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 const root = path.resolve(import.meta.dirname, "..");
@@ -28,7 +28,8 @@ let commit = null;
 try {
   commit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
 } catch {}
-writeFileSync(path.join(app, "dist", "build.json"), JSON.stringify({ commit, builtAt: new Date().toISOString() }));
+const version = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8")).version;
+writeFileSync(path.join(app, "dist", "build.json"), JSON.stringify({ commit, version, builtAt: new Date().toISOString() }));
 rmSync(path.join(app, "config"), { recursive: true, force: true });
 cpSync(path.join(root, "config"), path.join(app, "config"), { recursive: true });
 console.log("설정 화면 빌드 완료:", path.relative(root, path.join(app, "dist")));

@@ -560,6 +560,13 @@ describe("settings server", () => {
     expect(parse(read("models.yaml")).aliases.longctx).toMatchObject({ engine: "antigravity", model: "gemini-3.8-flash-high" });
   });
 
+  it("reports the Nexus version in /api/info", async () => {
+    await start();
+    const info = (await (await fetch(new URL("/api/info", base))).json()) as any;
+    expect(info.version).toMatch(/^\d+\.\d+\.\d+/);
+    expect(info.stale).toBe(false);
+  });
+
   it("reports a broken config file in Korean", async () => {
     writeConfig(configDir, { routing: "taskTypes: [oops\n" });
     await start({ fillUser: false });

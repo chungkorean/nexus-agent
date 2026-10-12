@@ -16,6 +16,9 @@ export interface ExtrasOptions {
   commands?: TranscribeCommands;
   installer: ToolInstaller;
   build?: string | null;
+  version?: string | null;
+  /** 저장소의 지금 커밋 */
+  head?: () => string | null;
   /** Paperclip 한국어 보기 주소. 못 열었으면 null */
   viewUrl?: () => string | null;
   /** Paperclip에 Nexus 어댑터를 저절로 설치한 결과 */
@@ -38,6 +41,11 @@ function archiveId(v: unknown): string {
 
 export function createExtras(o: ExtrasOptions) {
   const client = () => new PaperclipClient(o.paperclipUrl, undefined, "");
+  /** 빌드한 뒤 git pull로 새 코드를 받았는데 아직 다시 켜지 않았으면 true */
+  const isStale = () => {
+    const head = o.head?.();
+    return Boolean(o.build && head && head !== o.build);
+  };
 
   function voiceState() {
     const s = readVoiceSettings(o.stateDir);
@@ -63,7 +71,7 @@ export function createExtras(o: ExtrasOptions) {
   }
 
   const get: Record<string, (url: URL) => Promise<object> | object> = {
-    "/api/info": () => ({ paperclipUrl: o.paperclipUrl, platform: process.platform, build: o.build ?? null }),
+    "/api/info": () => ({ paperclipUrl: o.paperclipUrl, platform: process.platform, build: o.build ?? null, version: o.version ?? null, stale: isStale() }),
 
     "/api/archive": (url) => ({
       items: listArchive(o.stateDir, {

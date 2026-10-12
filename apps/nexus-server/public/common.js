@@ -99,5 +99,11 @@ function renderNav(active) {
   const stuck = () => nav.classList.toggle("stuck", window.scrollY > 4);
   window.addEventListener("scroll", stuck, { passive: true });
   stuck();
+  // 새 코드를 받았는데 예전 서버가 떠 있으면 알려 준다(화면이 바뀌지 않는 이유).
+  api("/api/info").then((i) => {
+    if (!i.stale) return;
+    nav.after(h("div", { class: "notice warn", role: "status", style: "margin:0 0 10px" },
+      "새 버전을 받았지만 아직 예전 화면이에요. 작업 표시줄의 N 아이콘을 오른쪽 클릭해 '모두 다시 시작'을 눌러 주세요."));
+  }).catch(() => {});
   return nav;
 }

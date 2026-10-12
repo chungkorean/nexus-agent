@@ -34,6 +34,65 @@ function Open-App([string]$url = $AppUrl) {
 
 $Repo = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 
+# ---------- 버전 관리와 자동 업데이트 ----------
+# 저장소 맨 위 package.json의 version이 Nexus 버전이다. GitHub(origin/main)의 version이 더 높을 때만
+# 새 버전을 받는다. 받는 동안 "업데이트 중" 창을 띄우고, 받은 뒤 패키지 설치와 빌드까지 한다.
+# 인터넷이 없거나 GitHub에 닿지 않으면 조용히 지금 버전으로 켠다. 끄려면 환경 변수 NEXUS_NO_UPDATE=1.
+function Get-NexusVersion([string]$json) {
+  try { return [version](($json | ConvertFrom-Json).version -replace "-.*$", "") } catch { return $null }
+}
+function Get-LocalVersion {
+  return Get-NexusVersion ([IO.File]::ReadAllText((Join-Path $Repo "package.json")))
+}
+function Find-Update {
+  if ($env:NEXUS_NO_UPDATE -eq "1" -or $env:NEXUS_JUST_UPDATED -eq "1") { return $null }
+  if (-not (Test-Path (Join-Path $Repo ".git"))) { return $null }
+  if (-not (Get-Command git -ErrorAction SilentlyContinue)) { return $null }
+  $env:GIT_TERMINAL_PROMPT = "0"
+  & git -C $Repo -c credential.interactive=never fetch --quiet origin main 2>$null
+  if ($LASTEXITCODE -ne 0) { return $null }
+  $remoteJson = (& git -C $Repo show origin/main:package.json 2>$null) -join "`n"
+  $remote = Get-NexusVersion $remoteJson
+  $local = Get-LocalVersion
+  if ($remote -and $local -and $remote -gt $local) { return $remote }
+  return $null
+}
+# 새 버전으로 바꾼다. 보이는 창에서 진행 상황을 보여 주고, 끝날 때까지 기다린다. 성공하면 $true.
+function Install-Update($version) {
+  $logFile = Join-Path $DataDir "logs\update.log"
+  New-Item -ItemType Directory -Force -Path (Split-Path $logFile) | Out-Null
+  # Nexus.exe가 아직 끝나지 않았으면 새 Nexus.exe로 바꾸지 못하므로 잠깐 기다린다.
+  Start-Sleep -Milliseconds 1500
+  $steps = @(
+    "title Nexus 업데이트 중",
+    "echo.",
+    "echo   Nexus를 새 버전 $version (으)로 업데이트하는 중이에요.",
+    "echo   이 창이 저절로 닫힐 때까지 기다려 주세요. 몇 분 걸릴 수 있어요.",
+    "echo.",
+    "git -c credential.interactive=never pull --ff-only",
+    "npx --yes pnpm@10 install",
+    "npx --yes pnpm@10 build"
+  ) -join " && "
+  $fail = "(echo. & echo   업데이트하지 못했어요. 위 오류를 확인한 뒤 아무 키나 누르면 지금 버전으로 켤게요. & pause & exit /b 1)"
+  $p = Start-Process -FilePath "cmd.exe" -ArgumentList "/d /c `"$steps || $fail`"" -WorkingDirectory $Repo -PassThru -Wait
+  Add-Content -Path $logFile -Encoding UTF8 -Value ((Get-Date -Format "yyyy-MM-dd HH:mm:ss") + " 업데이트 $version : 종료 코드 " + $p.ExitCode)
+  return ($p.ExitCode -eq 0)
+}
+# 새 트레이 실행기로 다시 켠다(받은 새 실행기 내용을 쓰려고). 새 실행기가 예전 서버와 이 트레이를 정리한다.
+function Restart-Tray {
+  $env:NEXUS_JUST_UPDATED = "1"
+  $argList = @("-NoProfile", "-WindowStyle", "Hidden", "-ExecutionPolicy", "Bypass", "-File", "`"$PSCommandPath`"", "-PaperclipPort", $PaperclipPort, "-SettingsPort", $SettingsPort)
+  if ($OpenApp) { $argList += "-OpenApp" }
+  if ($NoPaperclip) { $argList += "-NoPaperclip" }
+  Start-Process -FilePath (Get-Process -Id $PID).Path -ArgumentList $argList -WindowStyle Hidden
+}
+
+$update = Find-Update
+if ($update) {
+  if (Install-Update $update) { Restart-Tray; exit 0 }
+}
+$env:NEXUS_JUST_UPDATED = $null
+
 # 지금 떠 있는 설정 화면이 이 저장소의 최신 코드인지 본다.
 # git pull 전에 켠 서버(또는 그 서버를 띄운 예전 트레이)가 남아 있으면 새 화면(/studio 등)이 없다.
 function Test-StaleSettings {
@@ -124,6 +183,8 @@ function Stop-NexusService($svc) {
     if ($svc.Name -eq "Paperclip") { Stop-PaperclipDb | Out-Null }
   }
   $svc.Process = $null
+  # 이 트레이가 띄우지 않은(예전 트레이나 직접 켠) 설정 화면이 남아 있으면 새로 켜지지 않으므로 그것도 끈다.
+  if ($svc.Port -eq $SettingsPort -and (Test-Port $SettingsPort)) { Stop-StaleSettings }
 }
 
 $env:NEXUS_NO_BROWSER = "1"
@@ -203,6 +264,11 @@ if (-not $NoPaperclip) { Add-Item "Paperclip 열기" { Open-App "http://127.0.0.
 Add-Item "음성 비서 열기" { Open-App "http://127.0.0.1:$SettingsPort/voice" } | Out-Null
 Add-Item "Nexus 설정 열기 (모델, 사용량, 예산)" { Open-App $SettingsUrl } | Out-Null
 Add-Item "기록(로그) 폴더 열기" { Start-Process explorer.exe $LogDir } | Out-Null
+Add-Item ("새 버전 확인 (지금 버전 " + (Get-LocalVersion) + ")") {
+  $v = Find-Update
+  if (-not $v) { Notify "Nexus" ("지금 버전 " + (Get-LocalVersion) + "이 최신이에요."); return }
+  if (Install-Update $v) { Restart-Tray } else { Notify "Nexus" "업데이트하지 못했어요. 기록(로그) 폴더의 update.log를 확인해 주세요." "Warning" }
+} | Out-Null
 $menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator)) | Out-Null
 Add-Item "모두 다시 시작" {
   foreach ($s in $services) { Stop-NexusService $s; $s.Restarts = @() }

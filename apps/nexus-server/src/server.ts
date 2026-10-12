@@ -1,4 +1,5 @@
 // 쉬운 설정 화면용 로컬 웹 서버. 127.0.0.1에서만 열고, 사용자 설정 폴더의 YAML을 고친다.
+import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
@@ -113,6 +114,31 @@ function findPublicDir(): string {
   return path.join(here, "public");
 }
 
+/** 저장소의 지금 커밋. git pull로 새 코드를 받았는데 예전 서버가 떠 있는지 알아보는 데 쓴다. */
+let headCache: { at: number; value: string | null } | null = null;
+function repoHead(): string | null {
+  if (headCache && Date.now() - headCache.at < 30_000) return headCache.value;
+  let value: string | null = null;
+  try {
+    const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
+    value = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 3000, windowsHide: true }).trim() || null;
+  } catch {}
+  headCache = { at: Date.now(), value };
+  return value;
+}
+
+/** Nexus 버전: 저장소 맨 위 package.json의 version (빌드했으면 build.json에 남긴 값) */
+function readVersion(): string | null {
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  for (const file of [path.join(here, "build.json"), path.join(here, "..", "..", "..", "package.json")]) {
+    try {
+      const v = JSON.parse(readFileSync(file, "utf8")).version;
+      if (typeof v === "string") return v;
+    } catch {}
+  }
+  return null;
+}
+
 /** 빌드할 때 남긴 커밋. 트레이 실행기가 오래된 서버를 알아보는 데 쓴다. 소스로 돌리면 null. */
 function readBuild(): string | null {
   try {
@@ -176,6 +202,8 @@ export function createSettingsServer(opts: SettingsServerOptions): SettingsServe
     installer,
     targets: (companyId) => paperclipTargets(companyId),
     build: readBuild(),
+    version: readVersion(),
+    head: repoHead,
     viewUrl: () => viewUrl,
     adapterStatus: () => adapterSync?.status() ?? null,
   });
