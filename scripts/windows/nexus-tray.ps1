@@ -41,8 +41,19 @@ function New-NexusService($name, $port, $command, $log) {
   return [pscustomobject]@{ Name = $name; Port = $port; Command = $command; Log = $log; Process = $null; Restarts = @(); Wanted = $true }
 }
 
+# Paperclip을 강제로 끄면 내장 데이터베이스(postgres.exe)가 남아
+# 다음에 켤 때 "pre-existing shared memory block is still in use" 오류가 난다.
+# Paperclip이 쓰는 embedded-postgres 패키지의 postgres.exe만 골라 끈다(따로 설치한 PostgreSQL은 건드리지 않는다).
+function Stop-PaperclipDb {
+  $procs = @(Get-CimInstance Win32_Process -Filter "Name='postgres.exe'" -ErrorAction SilentlyContinue | Where-Object { $_.ExecutablePath -like "*embedded-postgres*" -or $_.CommandLine -like "*paperclip*" })
+  foreach ($p in $procs) { Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue }
+  if ($procs.Count) { Start-Sleep -Milliseconds 800 }
+  return $procs.Count
+}
+
 function Start-NexusService($svc) {
   if (Test-Port $svc.Port) { return "already" }
+  if ($svc.Name -eq "Paperclip") { Stop-PaperclipDb | Out-Null }
   $line = "/d /s /c `"$($svc.Command) >> `"$($svc.Log)`" 2>&1`""
   Add-Content -Path $svc.Log -Value ("`r`n==== " + (Get-Date -Format "yyyy-MM-dd HH:mm:ss") + " 시작 ====") -Encoding UTF8
   $svc.Process = Start-Process -FilePath "cmd.exe" -ArgumentList $line -WorkingDirectory $Repo -WindowStyle Hidden -PassThru
@@ -52,6 +63,7 @@ function Start-NexusService($svc) {
 function Stop-NexusService($svc) {
   if ($svc.Process -and -not $svc.Process.HasExited) {
     & taskkill.exe /PID $svc.Process.Id /T /F 2>&1 | Out-Null
+    if ($svc.Name -eq "Paperclip") { Stop-PaperclipDb | Out-Null }
   }
   $svc.Process = $null
 }
