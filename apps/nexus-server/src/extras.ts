@@ -7,13 +7,13 @@ import { PaperclipClient } from "@nexus/paperclip-client";
 import { archiveDir, archiveMediaPath, isArchiveId, listArchive, mediaInfo, readArchive, removeArchive, type CommandSpec } from "@nexus/shared";
 import { respond, type AssistantDeps } from "./assistant.ts";
 import { HttpError } from "./errors.ts";
-import { findWhisper, LANGUAGES, readVoiceSettings, transcribe, voiceDir, WHISPER_MODELS, writeVoiceSettings, DEFAULT_WHISPER_MODEL, type ToolInstaller, type VoiceSettings } from "./voice.ts";
+import { engineReady, findWhisper, senseVoiceDir, VOICE_ENGINES, type TranscribeCommands, type VoiceEngine, LANGUAGES, readVoiceSettings, transcribe, voiceDir, WHISPER_MODELS, writeVoiceSettings, DEFAULT_WHISPER_MODEL, type ToolInstaller, type VoiceSettings } from "./voice.ts";
 
 export interface ExtrasOptions {
   stateDir: string;
   paperclipUrl: string;
   assistant: () => AssistantDeps;
-  whisperCommand?: CommandSpec;
+  commands?: TranscribeCommands;
   installer: ToolInstaller;
   targets: (companyId: string | null | undefined) => Promise<{ companies: Array<{ id: string; name: string }>; agents: Array<{ id: string; name: string; adapterType: string }>; paperclipError: string | null }>;
 }
@@ -40,7 +40,9 @@ export function createExtras(o: ExtrasOptions) {
     return {
       settings: s,
       setup: {
-        ready: Boolean((o.whisperCommand || setup.whisper) && (o.whisperCommand || setup.model)),
+        ready: engineReady(s.engine, setup, o.commands),
+        engines: { whisper: engineReady("whisper", setup, o.commands), sensevoice: engineReady("sensevoice", setup, o.commands) },
+        sensevoice: setup.sensevoice,
         whisper: setup.whisper,
         model: setup.model,
         models: setup.models.map((p) => ({ path: p, name: path.basename(p) })),
@@ -125,6 +127,10 @@ export function createExtras(o: ExtrasOptions) {
         next.wakeWord = w;
       }
       if (typeof body.speak === "boolean") next.speak = body.speak;
+      if (body.engine !== undefined) {
+        if (!VOICE_ENGINES.includes(body.engine as VoiceEngine)) throw new HttpError(400, "엔진을 다시 골라 주세요.");
+        next.engine = body.engine as VoiceEngine;
+      }
       for (const key of ["whisperPath", "modelPath", "ffmpegPath"] as const) {
         if (body[key] === undefined) continue;
         const v = str(body[key], 400);
@@ -151,6 +157,11 @@ export function createExtras(o: ExtrasOptions) {
     "/api/voice/install": (body) => {
       o.installer.startWhisper(String(body.model ?? DEFAULT_WHISPER_MODEL), voiceDir());
       return { ok: true, message: "Whisper를 받기 시작했어요. 모델 크기에 따라 몇 분 걸려요.", install: o.installer.state };
+    },
+
+    "/api/voice/install-sensevoice": () => {
+      o.installer.startSenseVoice(senseVoiceDir());
+      return { ok: true, message: "SenseVoice를 받기 시작했어요. 몇 분 걸려요.", install: o.installer.state };
     },
 
     "/api/voice/install-ffmpeg": () => {
@@ -217,7 +228,7 @@ export function createExtras(o: ExtrasOptions) {
     if (audio.length < 1000) throw new HttpError(400, "소리가 너무 짧아요.");
     const ext = contentType.includes("wav") ? ".wav" : contentType.includes("webm") ? ".webm" : contentType.includes("ogg") ? ".ogg" : contentType.includes("mpeg") ? ".mp3" : ".wav";
     const s = readVoiceSettings(o.stateDir);
-    const text = await transcribe(audio, ext, s, findWhisper(s), { command: o.whisperCommand, tmpDir: path.join(o.stateDir, "tmp") });
+    const text = await transcribe(audio, ext, s, findWhisper(s), { commands: o.commands, tmpDir: path.join(o.stateDir, "tmp") });
     return { text };
   }
 

@@ -32,6 +32,7 @@ header p { margin: 0 0 16px; color: var(--muted); }
 .log li.err { align-self: flex-start; background: var(--bad-soft); color: var(--bad); }
 .log .who { display: block; font-size: 13px; color: var(--muted); font-weight: 700; margin-bottom: 2px; }
 .log .acts { margin-top: 8px; display: flex; gap: 8px; flex-wrap: wrap; }
+.models-pick.engines { grid-template-columns: 1fr 1fr; }
 .models-pick { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 10px 0 14px; }
 .choice { position: relative; display: block; border: 1.5px solid var(--line); border-radius: 12px; padding: 12px 14px; cursor: pointer; }
 .choice input { position: absolute; opacity: 0; pointer-events: none; }
@@ -48,7 +49,7 @@ header p { margin: 0 0 16px; color: var(--muted); }
 .badge.ok { background: var(--ok-soft); color: var(--ok); }
 .badge.warn { background: var(--warn-soft); color: var(--warn); }
 @media (max-width: 640px) {
-  .models-pick, .row2 { grid-template-columns: 1fr; }
+  .models-pick, .models-pick.engines, .row2 { grid-template-columns: 1fr; }
   .log li { max-width: 100%; }
 }
 </style>
@@ -57,7 +58,7 @@ header p { margin: 0 0 16px; color: var(--muted); }
 <main>
   <header>
     <h1>음성 비서</h1>
-    <p>말로 일을 맡기고 진행 상황을 들어요. 소리는 이 PC의 Whisper가 글로 바꾸고, 밖으로 보내지 않아요.</p>
+    <p>말로 일을 맡기고 진행 상황을 들어요. 소리는 이 PC에서 글로 바꾸고, 밖으로 보내지 않아요.</p>
   </header>
   <div id="notice" class="notice" role="status" aria-live="polite"></div>
   <div id="setup"></div>
@@ -129,41 +130,67 @@ function installLog() {
   ];
 }
 
+const ENGINES = [
+  ["whisper", "Whisper · 정확", "OpenAI Whisper(whisper.cpp). 한국어를 가장 잘 알아들어요."],
+  ["sensevoice", "SenseVoice · 빠름", "말을 한 번에 받아써서 몇 배 빠르고 CPU를 적게 써요. 호출어를 켜 둘 때 좋아요."],
+];
+
+function engineChooser() {
+  const cur = V.settings.engine;
+  return h("div", { class: "models-pick engines", role: "radiogroup", "aria-label": "받아쓰기 엔진" },
+    ENGINES.map(([id, title, note]) => h("label", { class: "choice" },
+      h("input", { type: "radio", name: "engine", value: id, checked: id === cur, onchange: async () => {
+        try { await api("/api/voice/settings", { engine: id }); await loadVoice(); } catch (e) { showError(e); }
+      } }),
+      h("strong", {}, title + (V.setup.engines[id] ? " ✓" : "")), h("span", {}, note))));
+}
+
 function renderSetup() {
   const box = $("setup");
   const s = V.setup;
   const inst = V.install;
   const win = V.platform === "win32";
-  const whisperBusy = inst.running && inst.job === "whisper";
-  if (s.ready && !whisperBusy) {
+  const engine = V.settings.engine;
+  const busy = inst.running && inst.job === engine;
+  const parts = [h("h2", {}, "받아쓰기 엔진"), engineChooser()];
+
+  if (s.ready && !busy) {
     const ffBtn = s.ffmpeg ? null : h("button", { type: "button", class: "small-btn", disabled: inst.running || !win, onclick: () => startInstall("/api/voice/install-ffmpeg", {}) },
       inst.running && inst.job === "ffmpeg" ? "ffmpeg 설치하는 중..." : "ffmpeg 설치 (약 90MB)");
-    const pick = modelPick();
-    box.replaceChildren(h("section", { class: "card" },
+    parts.push(
       h("div", { class: "ready-line" },
         h("span", { class: "badge ok" }, "준비됐어요"),
-        h("span", {}, "Whisper 모델: " + (s.model ? s.model.split(/[\\/]/).pop() : "시험용")),
+        engine === "whisper"
+          ? h("span", {}, "Whisper 모델: " + (s.model ? s.model.split(/[\\/]/).pop() : "시험용"))
+          : h("span", {}, "SenseVoice로 받아써요"),
         h("span", { class: "badge " + (s.ffmpeg ? "ok" : "warn") }, s.ffmpeg ? "텔레그램 음성 메시지도 받아요" : "텔레그램 음성 메시지는 ffmpeg가 필요해요")),
       s.ffmpeg ? null : h("div", { class: "ready-line", style: "margin-top:10px" },
-        h("span", { class: "help", style: "margin:0" }, "텔레그램 음성 메시지도 글로 바꾸려면 ffmpeg를 설치해 주세요."), ffBtn),
-      h("details", {}, h("summary", {}, "다른 음성 모델 받기"),
+        h("span", { class: "help", style: "margin:0" }, "텔레그램 음성 메시지도 글로 바꾸려면 ffmpeg를 설치해 주세요."), ffBtn));
+    if (engine === "whisper") {
+      const pick = modelPick();
+      parts.push(h("details", {}, h("summary", {}, "다른 Whisper 모델 받기"),
         h("div", { class: "inner" },
           h("p", { class: "help" }, "받은 모델은 '음성 설정 > 직접 지정'에서 고를 수 있어요. 고르지 않으면 가장 정확한 모델을 써요."),
           pick,
-          h("button", { type: "button", class: "small-btn", disabled: inst.running || !win, onclick: () => startInstall("/api/voice/install", { model: pick.querySelector("input:checked").value }) }, "이 모델 받기"))),
-      ...installLog()));
-    return;
+          h("button", { type: "button", class: "small-btn", disabled: inst.running || !win, onclick: () => startInstall("/api/voice/install", { model: pick.querySelector("input:checked").value }) }, "이 모델 받기"))));
+    }
+  } else if (engine === "whisper") {
+    const pick = modelPick();
+    parts.push(
+      h("p", { class: "help" }, "말을 글로 바꾸는 프로그램(whisper.cpp)과 음성 모델을 이 PC에 내려받아요. 한 번만 하면 돼요."),
+      pick,
+      win ? null : h("p", { class: "help" }, "자동 설치는 Windows에서만 돼요. 아래 '음성 설정 > 직접 지정'에 whisper-cli와 모델 경로를 적어 주세요."),
+      h("button", { type: "button", class: "primary", disabled: inst.running || !win, onclick: () => startInstall("/api/voice/install", { model: pick.querySelector("input:checked").value }) },
+        busy ? "설치하는 중..." : "Whisper 설치"));
+  } else {
+    parts.push(
+      h("p", { class: "help" }, "sherpa-onnx 프로그램과 SenseVoice 모델(한국어·영어·일본어·중국어)을 이 PC에 내려받아요. 모델은 약 230MB예요."),
+      win ? null : h("p", { class: "help" }, "자동 설치는 Windows에서만 돼요."),
+      h("button", { type: "button", class: "primary", disabled: inst.running || !win, onclick: () => startInstall("/api/voice/install-sensevoice", {}) },
+        busy ? "설치하는 중..." : "SenseVoice 설치"));
   }
-  const pick = modelPick();
-  const btn = h("button", { type: "button", class: "primary", disabled: inst.running || !win, onclick: () => startInstall("/api/voice/install", { model: pick.querySelector("input:checked").value }) },
-    whisperBusy ? "설치하는 중..." : "Whisper 설치");
-  box.replaceChildren(h("section", { class: "card" },
-    h("h2", {}, "먼저 Whisper를 설치해요"),
-    h("p", { class: "help" }, "말을 글로 바꾸는 프로그램(whisper.cpp)과 음성 모델을 이 PC에 내려받아요. 한 번만 하면 돼요."),
-    pick,
-    win ? null : h("p", { class: "help" }, "자동 설치는 Windows에서만 돼요. 아래 '음성 설정 > 직접 지정'에 whisper-cli와 모델 경로를 적어 주세요."),
-    btn,
-    ...installLog()));
+  parts.push(...installLog());
+  box.replaceChildren(h("section", { class: "card" }, ...parts.filter(Boolean)));
 }
 
 function renderSettings() {

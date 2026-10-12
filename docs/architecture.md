@@ -109,6 +109,7 @@
 
 - 브라우저(`public/voice.html`)가 마이크 소리를 AudioWorklet으로 20ms씩 받아 소리 크기로 말의 시작과 끝을 찾고(주변 소음의 3배, 0.7초 조용하면 끝), 16kHz 모노 WAV로 바꿔 `POST /api/voice/transcribe`(`audio/wav`, `X-Nexus` 머리글, 20MB까지)로 보냅니다.
 - 서버는 `whisper-cli -m <모델> -f <wav> -nt -np -l ko --prompt <호출어>`를 돌립니다(`apps/nexus-server/src/voice.ts`). 호출어를 prompt로 주면 호출어를 더 잘 알아듣습니다. Whisper가 조용한 소리에서 지어내는 말([음악], "시청해 주셔서 감사합니다" 등)은 버립니다. WAV가 아니면(텔레그램 OGG) ffmpeg로 먼저 바꿉니다.
+- 빠른 엔진으로 SenseVoice를 고를 수 있습니다(`voice.json`의 `engine`). `sherpa-onnx-offline --tokens=… --sense-voice-model=model.int8.onnx --sense-voice-language=ko --sense-voice-use-itn=1 <wav>`를 돌리고, 버전마다 stdout이나 stderr에 나오는 `{"text": …}` 줄을 읽습니다. `install-sensevoice.ps1`은 GitHub 최신 릴리스의 Windows x64 `.tar.bz2`(정적 빌드 우선)와 `asr-models` 릴리스의 SenseVoice 모델(int8 우선)을 받아 Windows 기본 `tar.exe`로 풀고, int8 모델이 있으면 큰 원본은 지웁니다. 위치는 `%LOCALAPPDATA%\Nexus\sensevoice`.
 - 호출어는 브라우저에서 확인합니다. 글로 바꾼 말의 앞부분을 공백·문장 부호를 빼고 호출어(기본 "넥서스"와 넥써스·nexus 같은 변형)와 비교하고, 한 글자 차이까지 받아 줍니다. 호출어가 아니면 흘려듣고, 알아듣거나 답을 읽는 동안에는 새 말을 받지 않습니다.
 - 말 처리(`assistant.ts`)는 음성과 텔레그램이 함께 씁니다. 40자 이하의 말에서 도움말·사용량·진행 상황을 찾고, 나머지는 할 일로 보고 이슈를 만듭니다. 진행 상황은 Paperclip 이슈 목록에서 진행 중·할 일·막힘을 세고(하위 이슈 제외), 보관함에서 오늘 끝난 작업을 상태별로 셉니다.
 - 설정은 `state/voice.json`(호출어, 언어, 소리로 읽기, 맡길 회사·에이전트, 직접 고른 경로)에 둡니다. Whisper는 `%LOCALAPPDATA%\Nexus\whisper`에서 찾고, 모델이 여럿이면 large-v3-turbo-q5_0, small, base 순으로 고릅니다.

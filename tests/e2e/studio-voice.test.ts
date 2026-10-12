@@ -5,7 +5,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { archiveRun, writeTelegramSettings } from "@nexus/shared";
 import { createSettingsServer, type SettingsServer } from "../../apps/nexus-server/src/server.ts";
 import { detectIntent } from "../../apps/nexus-server/src/assistant.ts";
-import { cleanTranscript } from "../../apps/nexus-server/src/voice.ts";
+import { cleanTranscript, parseSenseVoice } from "../../apps/nexus-server/src/voice.ts";
 import { FakePaperclip } from "../fakes/fake-paperclip.ts";
 import { FAKE_TOKEN, FakeTelegram } from "../fakes/fake-telegram.ts";
 
@@ -32,6 +32,24 @@ const args = process.argv.slice(2);
 writeFileSync(${JSON.stringify(argsFile)}, JSON.stringify(args));
 const buf = readFileSync(args[args.indexOf("-f") + 1]);
 console.log(" " + buf.subarray(44).toString("utf8").trim());`,
+  );
+  return [process.execPath, script];
+}
+
+/** 가짜 sherpa-onnx-offline: 결과를 stderr에 JSON 한 줄로 쓴다(실제 프로그램과 같은 모양). */
+let senseArgsFile: string;
+function fakeSense(dir: string): string[] {
+  const script = path.join(dir, "fake-sense.mjs");
+  senseArgsFile = path.join(dir, "sense-args.json");
+  writeFileSync(
+    script,
+    `import { readFileSync, writeFileSync } from "node:fs";
+const args = process.argv.slice(2);
+writeFileSync(${JSON.stringify(senseArgsFile)}, JSON.stringify(args));
+const text = readFileSync(args.at(-1)).subarray(44).toString("utf8").trim();
+console.error("OfflineRecognizerConfig(...)\\n" + args.at(-1));
+console.error(JSON.stringify({ lang: "<|ko|>", emotion: "<|NEUTRAL|>", event: "<|Speech|>", text, timestamps: [] }));
+console.error("----\\nnum threads: 2");`,
   );
   return [process.execPath, script];
 }
@@ -75,6 +93,7 @@ beforeEach(async () => {
     accountsDir: path.join(tmp, "accounts"),
     port: 0,
     whisperCommand: fakeWhisper(tmp),
+    senseVoiceCommand: fakeSense(tmp),
     telegram: { paperclipUrl: paperclip.url, apiBase: tg.url, pollSeconds: 1 },
   });
   base = await srv.listen();
@@ -181,6 +200,18 @@ describe("음성 비서", () => {
     expect(r.body.reply.text).toContain("이번 달 사용량");
   });
 
+  it("SenseVoice 엔진으로 바꿔 받아쓴다", async () => {
+    let v = await post("/api/voice/settings", { engine: "sensevoice", language: "ko" });
+    expect(v.body.settings.engine).toBe("sensevoice");
+    expect(v.body.setup.engines).toEqual({ whisper: true, sensevoice: true });
+    expect((await post("/api/voice/settings", { engine: "siri" })).status).toBe(400);
+    const res = await fetch(new URL("/api/voice/transcribe", base), { method: "POST", headers: { "content-type": "audio/wav", "x-nexus": "1" }, body: new Uint8Array(wav("넥서스 오늘 브리핑 해 줘")) });
+    expect(((await res.json()) as any).text).toBe("넥서스 오늘 브리핑 해 줘");
+    const args = JSON.parse(readFileSync(senseArgsFile, "utf8")) as string[];
+    expect(args).toEqual(expect.arrayContaining(["--sense-voice-language=ko", "--sense-voice-use-itn=1"]));
+    if (process.platform !== "win32") expect((await post("/api/voice/install-sensevoice", {})).status).toBe(400);
+  });
+
   it("텔레그램 음성 메시지를 글로 바꿔 할 일로 등록한다", async () => {
     writeTelegramSettings(stateDir, { enabled: true, notifyResults: true, botToken: FAKE_TOKEN, chats: [{ id: ME, name: "정" }], companyId: "co-1", agentId: "agent-dev" });
     tg.files.set("voice-1", { path: "voice/file_1.oga", data: wav("검색 기능 구현해 줘") });
@@ -201,6 +232,7 @@ describe("음성 비서", () => {
     expect(detectIntent("도움말")).toBe("help");
     expect(detectIntent("검색 기능 진행 상황을 보여 주는 대시보드 페이지를 새로 만들고 관리자만 볼 수 있게 해 줘")).toBe("task");
     expect(cleanTranscript(" 시청해 주셔서 감사합니다.")).toBe("");
+    expect(parseSenseVoice('a.wav\n{"lang": "<|ko|>", "text": "안녕 <|ko|>하세요", "tokens": []}\n----')).toBe("안녕 하세요");
     expect(cleanTranscript("[00:00:00.000 --> 00:00:02.000]  넥서스 (웃음) 안녕")).toBe("넥서스 안녕");
   });
 });

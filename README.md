@@ -130,6 +130,7 @@ Nexus 앱 창의 "스튜디오"(http://127.0.0.1:3200/studio)에서 봅니다.
 ### 9. 음성 비서
 
 1. Nexus 앱 창의 "음성 비서"(http://127.0.0.1:3200/voice)에서 모델 크기를 고르고 "Whisper 설치"를 누릅니다. whisper.cpp와 음성 모델을 `%LOCALAPPDATA%\Nexus\whisper`에 내려받습니다. 모델은 압축판이라 가벼움 60MB, 보통 190MB(추천), 정확 574MB입니다. 나중에 "다른 음성 모델 받기"로 더 받을 수 있습니다. 직접 하려면 `powershell -ExecutionPolicy Bypass -File scripts\windows\install-whisper.ps1 -Model small-q5_1`.
+   - 받아쓰기 엔진은 둘 중에 고릅니다. **Whisper**는 한국어를 가장 잘 알아듣고, **SenseVoice**(sherpa-onnx, 모델 약 230MB)는 말을 한 번에 받아써서 몇 배 빠르고 CPU를 적게 써 호출어를 켜 둘 때 좋습니다. 엔진을 고르면 그 엔진의 설치 버튼이 나옵니다. 직접 하려면 `scripts\windows\install-sensevoice.ps1`.
 2. "음성 설정"에서 일을 맡길 Paperclip 회사와 에이전트를 고릅니다. 비워 두면 텔레그램 설정을 따릅니다.
 3. 마이크 버튼을 누르고 말한 뒤 잠시 멈추면 알아듣습니다. 처음 한 번 마이크 권한을 허락해 주세요.
 

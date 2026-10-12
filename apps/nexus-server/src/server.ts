@@ -63,6 +63,8 @@ export interface SettingsServerOptions {
   opencodeCommand?: CommandSpec;
   /** 시험용: Whisper 대신 쓸 명령 */
   whisperCommand?: CommandSpec;
+  /** 시험용: SenseVoice(sherpa-onnx-offline) 대신 쓸 명령 */
+  senseVoiceCommand?: CommandSpec;
   /** Whisper·ffmpeg 설치 스크립트 폴더. 기본은 저장소의 scripts/windows */
   scriptsDir?: string;
   /** 텔레그램 봇을 함께 돌린다. 생략하면 돌리지 않는다(테스트). */
@@ -108,6 +110,7 @@ export function createSettingsServer(opts: SettingsServerOptions): SettingsServe
 
   ensureConfigFiles(opts.configDir, opts.fallbackDir);
   const paperclipUrl = opts.telegram?.paperclipUrl ?? PaperclipClient.resolveBaseUrl();
+  const transcribeCommands = { whisper: opts.whisperCommand, sensevoice: opts.senseVoiceCommand };
   const bot = opts.telegram
     ? new TelegramBot({
         stateDir: opts.stateDir,
@@ -118,7 +121,7 @@ export function createSettingsServer(opts: SettingsServerOptions): SettingsServe
         todayCost,
         transcribe: (audio, ext) => {
           const s = readVoiceSettings(opts.stateDir);
-          return transcribe(audio, ext, s, findWhisper(s), { command: opts.whisperCommand, tmpDir: path.join(opts.stateDir, "tmp") });
+          return transcribe(audio, ext, s, findWhisper(s), { commands: transcribeCommands, tmpDir: path.join(opts.stateDir, "tmp") });
         },
       })
     : null;
@@ -128,7 +131,7 @@ export function createSettingsServer(opts: SettingsServerOptions): SettingsServe
     stateDir: opts.stateDir,
     paperclipUrl,
     assistant: assistantDeps,
-    whisperCommand: opts.whisperCommand,
+    commands: transcribeCommands,
     installer,
     targets: (companyId) => paperclipTargets(companyId),
   });
