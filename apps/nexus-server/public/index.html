@@ -110,7 +110,7 @@ table.tasks .extra { display: block; font-weight: 400; font-size: 14px; color: v
 .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 .field > span { display: block; font-weight: 600; margin-bottom: 4px; }
 
-/* 3. 계정 */
+/* 4. 계정 */
 .accounts { list-style: none; margin: 0 0 18px; padding: 0; }
 .account { border: 1px solid var(--line); border-radius: 12px; padding: 14px; margin-bottom: 10px; }
 .account-top { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; justify-content: space-between; }
@@ -127,7 +127,7 @@ table.tasks .extra { display: block; font-weight: 400; font-size: 14px; color: v
 .engine-choices { grid-template-columns: 1fr 1fr; }
 .stack > * + * { margin-top: 12px; }
 
-/* 4. AI 모델 */
+/* 5. AI 모델 */
 .models { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 380px), 1fr)); gap: 14px; }
 .model { border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
 .model-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
@@ -140,14 +140,15 @@ details { margin-top: 10px; }
 summary { cursor: pointer; color: var(--muted); font-weight: 600; min-height: 36px; display: flex; align-items: center; }
 details .inner { padding-top: 8px; }
 
-/* 5. 기타 */
+/* 6. 기타 */
 .toggle-row { display: flex; gap: 14px; align-items: flex-start; justify-content: space-between; padding-bottom: 16px; border-bottom: 1px solid var(--line); margin-bottom: 16px; }
 .subhead { font-size: 15px; margin: 22px 0 4px; }
 .field.indent { display: block; margin: -4px 0 16px; padding-bottom: 16px; border-bottom: 1px solid var(--line); }
-#sec-planning .toggle-row:last-child { border-bottom: 0; margin-bottom: 0; padding-bottom: 0; }
+#sec-results .toggle-row:last-child { border-bottom: 0; margin-bottom: 0; padding-bottom: 0; }
 .toggle-row strong { display: block; font-size: 18px; }
 .switch { position: relative; flex: none; width: 64px; height: 36px; }
 .switch input { position: absolute; inset: 0; opacity: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; z-index: 1; }
+.switch input:disabled + .track { opacity: .45; }
 .switch .track { position: absolute; inset: 0; border-radius: 999px; background: var(--line); transition: background .15s; }
 .switch .track::after { content: ""; position: absolute; top: 4px; left: 4px; width: 28px; height: 28px; border-radius: 50%; background: #fff; transition: transform .15s; box-shadow: 0 1px 3px rgba(0,0,0,.3); }
 .switch input:checked + .track { background: var(--accent); }
@@ -389,7 +390,7 @@ function buildChanges() {
   for (const k of ["mode", "concurrency", "maxSubtasks"]) {
     if (draft.planning[k] !== orig.planning[k]) (c.planning = c.planning || {})[k] = draft.planning[k];
   }
-  for (const k of ["autoMerge", "markDoneOnSuccess", "resolveConflicts", "runTests", "review", "testCommand"]) {
+  for (const k of ["autoMerge", "markDoneOnSuccess", "resolveConflicts", "runTests", "review", "testCommand", "githubPush", "githubPullRequest", "githubRemote"]) {
     const v = typeof draft.results[k] === "string" ? draft.results[k].trim() : draft.results[k];
     if (v !== orig.results[k]) (c.results = c.results || {})[k] = v;
   }
@@ -475,8 +476,12 @@ function renderPlanning() {
       h("label", { class: "field" }, h("span", {}, "최대 몇 개로"),
         h("select", { disabled: off, onchange: (e) => { p.maxSubtasks = Number(e.target.value); refreshBar(); } },
           range(S.limits.maxSubtasks[0], S.limits.maxSubtasks[1], p.maxSubtasks).map((n) => h("option", { value: String(n), selected: n === p.maxSubtasks }, n + "개까지 나누기"))),
-        h("span", { class: "small" }, "한 작업을 이 개수보다 잘게 나누지 않아요."))),
-    h("h3", { class: "subhead" }, "작업이 끝나면"),
+        h("span", { class: "small" }, "한 작업을 이 개수보다 잘게 나누지 않아요."))));
+}
+
+function renderResults() {
+  return h("section", { class: "card", id: "sec-results" },
+    sectionTitle(3, "작업이 끝나면"),
     h("p", { class: "help" }, "나눠서 한 결과를 하나로 합친 뒤 확인하고, 문제가 없을 때만 작업 폴더에 합쳐요."),
     toggleRow("resolveConflicts", "합치다 충돌하면 AI에게 풀게 하기",
       "두 하위 작업이 같은 곳을 고쳐 충돌하면, 위험한 작업에 쓰는 AI가 양쪽 의도를 살려 한 번 풀어요.",
@@ -494,14 +499,24 @@ function renderPlanning() {
       draft.results.autoMerge, (v) => { draft.results.autoMerge = v; }),
     toggleRow("markDoneOnSuccess", "성공하면 이슈를 완료로 바꾸기",
       "끄면 성공해도 이슈가 진행 중으로 남아요. 실패하면 항상 '막힘'으로 바꿔요.",
-      draft.results.markDoneOnSuccess, (v) => { draft.results.markDoneOnSuccess = v; }));
+      draft.results.markDoneOnSuccess, (v) => { draft.results.markDoneOnSuccess = v; }),
+    h("h3", { class: "subhead" }, "GitHub 연동"),
+    h("p", { class: "help" }, "켜지 않으면 결과는 내 컴퓨터에만 남아요. 켜면 작업 폴더에 연결된 GitHub 저장소를 써요."),
+    toggleRow("githubPush", "결과 브랜치를 GitHub에 올리기",
+      "합친 결과 브랜치(nexus/이슈/result)를 원격 저장소에 올려요. 작업 폴더의 git 로그인 정보를 그대로 써요.",
+      draft.results.githubPush, (v) => { draft.results.githubPush = v; if (!v) draft.results.githubPullRequest = false; rerender(); }),
+    h("label", { class: "field indent" }, h("span", {}, "원격 저장소 이름"),
+      h("input", { type: "text", value: draft.results.githubRemote, disabled: !draft.results.githubPush, placeholder: "origin", oninput: (e) => { draft.results.githubRemote = e.target.value; refreshBar(); } })),
+    toggleRow("githubPullRequest", "초안 풀 리퀘스트 만들기",
+      "올린 브랜치로 작업 폴더의 현재 브랜치를 향한 초안 풀 리퀘스트를 만들어요. GitHub CLI(gh) 설치와 gh auth login이 필요해요.",
+      draft.results.githubPullRequest, (v) => { draft.results.githubPullRequest = v; refreshBar(); }, !draft.results.githubPush));
 }
 
-function toggleRow(id, title, desc, checked, set) {
+function toggleRow(id, title, desc, checked, set, disabled) {
   return h("div", { class: "toggle-row" },
     h("label", { for: id }, h("strong", {}, title), h("span", { class: "small" }, desc)),
     h("span", { class: "switch" },
-      h("input", { type: "checkbox", id, role: "switch", checked, onchange: (e) => { set(e.target.checked); refreshBar(); } }),
+      h("input", { type: "checkbox", id, role: "switch", checked, disabled: !!disabled, onchange: (e) => { set(e.target.checked); refreshBar(); } }),
       h("span", { class: "track", "aria-hidden": "true" })));
 }
 
@@ -558,7 +573,7 @@ function renderAccounts() {
     h("button", { type: "button", class: "primary", onclick: () => addAccount(form) }, "계정 추가"));
 
   return h("section", { class: "card", id: "sec-accounts" },
-    sectionTitle(3, "계정"),
+    sectionTitle(4, "계정"),
     h("p", { class: "help" }, "로그인해 둔 AI 계정이에요. 같은 서비스 계정을 여러 개 추가하면, 한 계정이 한도에 걸렸을 때 다음 계정으로 넘어가요."),
     list, addBox);
 }
@@ -594,7 +609,7 @@ function renderModels() {
           h("span", { class: "small" }, a.engine === "claude-code" ? "opus, sonnet, haiku 또는 전체 모델 ID를 적어요." : "공급자/모델 형식으로 적어요. 예: openai/gpt-5")))));
   });
   return h("section", { class: "card", id: "sec-models" },
-    sectionTitle(4, "AI 모델"),
+    sectionTitle(5, "AI 모델"),
     h("p", { class: "help" }, "위 표에서 고르는 AI들이에요. 이름을 알아보기 쉽게 바꾸고, 어떤 계정으로 쓸지 정해요."),
     h("div", { class: "models" }, cards));
 }
@@ -605,7 +620,7 @@ function renderMisc() {
   if (!times.includes(draft.maxFallbacks)) times.push(draft.maxFallbacks);
   const localId = "preferLocal";
   return h("section", { class: "card", id: "sec-misc" },
-    sectionTitle(5, "기타"),
+    sectionTitle(6, "기타"),
     h("div", { class: "toggle-row" },
       h("label", { for: localId }, h("strong", {}, "내 컴퓨터 모델 먼저 쓰기"),
         h("span", { class: "small" }, "테스트 작성, 문서 같은 가벼운 작업을 내 컴퓨터 모델(Ollama)에 먼저 맡겨요. 무료지만 느리거나 덜 정확할 수 있어요.")),
@@ -625,7 +640,7 @@ function renderMisc() {
 function rerender() {
   const y = window.scrollY;
   const open = [...document.querySelectorAll("details[open]")].map((d) => d.closest("section").id + ":" + [...d.closest("section").querySelectorAll("details")].indexOf(d));
-  $("app").replaceChildren(renderTasks(), renderPlanning(), renderAccounts(), renderModels(), renderMisc());
+  $("app").replaceChildren(renderTasks(), renderPlanning(), renderResults(), renderAccounts(), renderModels(), renderMisc());
   for (const key of open) {
     const [sec, i] = key.split(":");
     const d = document.querySelectorAll("#" + sec + " details")[Number(i)];

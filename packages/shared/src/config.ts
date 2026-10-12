@@ -35,6 +35,12 @@ export interface ResultPolicy {
   testCommand: string;
   /** 합친 전체 변경을 구현과 다른 회사 모델에게 검토받는다. */
   review: boolean;
+  /** 결과 브랜치를 GitHub(원격 저장소)에 올린다. 기본은 끔 */
+  githubPush: boolean;
+  /** 올린 결과 브랜치로 초안 풀 리퀘스트를 만든다(gh CLI 필요). 기본은 끔 */
+  githubPullRequest: boolean;
+  /** 올릴 원격 저장소 이름 */
+  githubRemote: string;
 }
 
 export interface PlanningPolicy {
@@ -210,6 +216,9 @@ function readResults(res: Partial<ResultPolicy>): ResultPolicy {
     runTests: res.runTests !== false,
     testCommand: typeof res.testCommand === "string" ? res.testCommand.trim() : "",
     review: res.review !== false,
+    githubPush: res.githubPush === true,
+    githubPullRequest: res.githubPullRequest === true,
+    githubRemote: typeof res.githubRemote === "string" && res.githubRemote.trim() ? res.githubRemote.trim() : "origin",
   };
 }
 

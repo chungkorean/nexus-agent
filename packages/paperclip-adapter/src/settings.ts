@@ -14,6 +14,8 @@ export interface DispatchSettings {
   configDir: string;
   opencodeCommand: CommandSpec;
   claudeCommand: CommandSpec;
+  /** 풀 리퀘스트를 만들 때 쓰는 GitHub CLI */
+  ghCommand: CommandSpec;
   timeoutSec: number;
   markDoneOnSuccess: boolean;
   /** 하위 작업이 모두 성공하면 브랜치를 작업 폴더의 현재 브랜치에 자동으로 합칠지 */
@@ -70,6 +72,7 @@ export function readSettings(config: Record<string, unknown>, context: Record<st
     configDir: str(config.configDir) ?? defaultConfigDir(),
     opencodeCommand: command(config.opencodeCommand, "opencode"),
     claudeCommand: command(config.claudeCommand, "claude"),
+    ghCommand: command(config.ghCommand, "gh"),
     timeoutSec: Number.isFinite(timeout) && timeout > 0 ? timeout : 1800,
     markDoneOnSuccess: bool(config.markDoneOnSuccess) ?? true,
     autoMerge: bool(config.autoMerge) ?? true,

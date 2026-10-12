@@ -25,6 +25,7 @@ import {
 import type { AdapterExecutionContext, AdapterExecutionResult } from "../adapter-types.ts";
 import { ADAPTER_TYPE, type DispatchSettings } from "../settings.ts";
 import { aggregate, type AggregateResult } from "./aggregate.ts";
+import { githubLines, publishToGithub, type GithubResult } from "./github.ts";
 import { serialGit } from "./gitqueue.ts";
 import { finishIssue, firstLine, outcomeLines, routeLine, runRoutes, safeComment, safeStatus, sumUsage, type Attempt, type Log } from "./run.ts";
 
@@ -171,7 +172,24 @@ export async function runPlanned(env: PlannedEnv, plan: Plan, planAttempts: Atte
   }
   const overallOk = allDone && (!agg || (agg.ok && agg.tests?.status !== "failed"));
   const aggAttempts = agg?.attempts ?? [];
-  await safeComment(client, issue.id, summaryComment(plan, runs, results, notes, Boolean(repo), { agg, gate, merge, overallOk, attempts: [...planAttempts, ...[...runs.values()].flatMap((r) => r.attempts), ...aggAttempts] }));
+  let summary = summaryComment(plan, runs, results, notes, Boolean(repo), { agg, gate, merge, overallOk, attempts: [...planAttempts, ...[...runs.values()].flatMap((r) => r.attempts), ...aggAttempts] });
+  let github: GithubResult | null = null;
+  if (repo && agg?.ok && agg.branch && config.routing.results.githubPush && !ctx.signal?.aborted) {
+    await log(`결과 브랜치를 GitHub(${config.routing.results.githubRemote})에 올려요.`);
+    github = await serialGit(() =>
+      publishToGithub(repo.root, agg!.branch!, {
+        remote: config.routing.results.githubRemote,
+        pullRequest: config.routing.results.githubPullRequest,
+        title: `${ident}: ${issue.title}`,
+        body: `Paperclip 이슈 ${ident}에서 Nexus가 만든 결과예요.\n\n${summary}`,
+        ghCommand: settings.ghCommand,
+        signal: ctx.signal,
+      }),
+    );
+    await log(github.pushed ? `GitHub에 올렸어요${github.prUrl ? `: ${github.prUrl}` : ""}.` : `GitHub에 올리지 못했어요: ${github.error}`);
+    summary += "\n" + githubLines(github, agg.branch).join("\n");
+  }
+  await safeComment(client, issue.id, summary);
   await finishIssue(client, issue.id, overallOk, { markDoneOnSuccess: settings.markDoneOnSuccess, signal: ctx.signal }, log);
 
   const outcomes: RunOutcome[] = [...planAttempts, ...[...runs.values()].flatMap((r) => r.attempts), ...aggAttempts].map((a) => a.outcome);
@@ -196,7 +214,7 @@ export async function runPlanned(env: PlannedEnv, plan: Plan, planAttempts: Atte
       plan,
       merged: merge?.ok ? { branch: merge.branch, head: merge.head } : null,
       result: agg
-        ? { ok: agg.ok, branch: agg.branch, head: agg.head, error: agg.error ?? null, tests: agg.tests, review: agg.review ? { verdict: agg.review.verdict, sameProvider: agg.review.sameProvider } : null, conflictsResolved: agg.resolutions.length }
+        ? { github: github ? { pushed: github.pushed, prUrl: github.prUrl ?? null, error: github.error ?? github.prError ?? null } : null, ok: agg.ok, branch: agg.branch, head: agg.head, error: agg.error ?? null, tests: agg.tests, review: agg.review ? { verdict: agg.review.verdict, sameProvider: agg.review.sameProvider } : null, conflictsResolved: agg.resolutions.length }
         : null,
       subtasks: plan.subtasks.map((s) => {
         const r = runs.get(s.key)!;

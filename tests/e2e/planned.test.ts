@@ -269,6 +269,38 @@ describe("작업 분해와 병렬 실행", () => {
     expect(summary).toContain("검토자가 확인이 필요하다고 해서");
   });
 
+  it("GitHub 연동을 켜면 결과 브랜치를 원격에 올리고 초안 풀 리퀘스트를 만든다", async () => {
+    const remote = path.join(tmp, "remote.git");
+    execFileSync("git", ["init", "-q", "--bare", remote]);
+    git(workdir, "remote", "add", "origin", remote);
+    const routing = parse(readFileSync(path.join(REPO_CONFIG, "routing.yaml"), "utf8"));
+    writeConfig({ results: { ...routing.results, githubPush: true, githubPullRequest: true } });
+    process.env.FAKE_GH_LOG = path.join(tmp, "gh.log");
+    setPlan(THREE.slice(0, 2));
+    const result = await executeDispatch(ctx({ ghCommand: [process.execPath, path.join(FAKES, "fake-gh.mjs")] }), deps);
+    expect(result.exitCode).toBe(0);
+    expect(execFileSync("git", ["ls-remote", "--heads", remote], { encoding: "utf8" })).toContain("refs/heads/nexus/NEX-1/result");
+    const gh = readLog(process.env.FAKE_GH_LOG!)[0]!;
+    expect(gh.args).toEqual(expect.arrayContaining(["pr", "create", "--draft", "--base", "main", "--head", "nexus/NEX-1/result"]));
+    expect(gh.body).toContain("Nexus 실행 결과: 완료");
+    const summary = paperclip.comments.filter((c) => c.issueId === "NEX-1").at(-1)!.body;
+    expect(summary).toContain("#### GitHub");
+    expect(summary).toContain("초안 풀 리퀘스트: https://github.com/me/repo/pull/7");
+    expect((result.resultJson!.result as any).github).toMatchObject({ pushed: true, prUrl: "https://github.com/me/repo/pull/7" });
+    delete process.env.FAKE_GH_LOG;
+  });
+
+  it("원격 저장소가 없으면 GitHub에 올리지 못한 이유만 남기고 나머지는 그대로 한다", async () => {
+    const routing = parse(readFileSync(path.join(REPO_CONFIG, "routing.yaml"), "utf8"));
+    writeConfig({ results: { ...routing.results, githubPush: true } });
+    setPlan(THREE.slice(0, 2));
+    const result = await executeDispatch(ctx(), deps);
+    expect(result.exitCode).toBe(0);
+    expect(existsSync(path.join(workdir, "api.txt"))).toBe(true);
+    const summary = paperclip.comments.filter((c) => c.issueId === "NEX-1").at(-1)!.body;
+    expect(summary).toContain("연결된 원격 저장소가 없어요 (이름: origin)");
+  });
+
   it("뒤 작업은 앞 작업의 브랜치를 합친 상태에서 시작한다", async () => {
     setPlan([
       { key: "impl", title: "구현", taskType: "implement", files: ["src/search.ts"], dependsOn: [] },

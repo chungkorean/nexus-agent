@@ -37,6 +37,21 @@ export async function testDispatchEnvironment(ctx: AdapterEnvironmentTestContext
     }
     const modeLabel = { auto: "큰 이슈만", always: "항상", never: "안 함" }[config.routing.planning.mode];
     checks.push({ code: "planning", level: "info", message: `작업 나누기: ${modeLabel}, 동시 실행 ${config.routing.planning.concurrency}개` });
+    const res = config.routing.results;
+    if (res.githubPush && s.cwd && existsSync(s.cwd)) {
+      const remote = await runProcess("git", ["remote", "get-url", res.githubRemote], { cwd: s.cwd, timeoutSec: 20 });
+      checks.push(
+        remote.exitCode === 0
+          ? { code: "github_remote_ok", level: "info", message: `GitHub에 올릴 저장소: ${remote.stdout.trim()}` }
+          : { code: "github_remote_missing", level: "warn", message: `GitHub 연동이 켜져 있지만 작업 폴더에 원격 저장소(${res.githubRemote})가 없어요.`, hint: `작업 폴더에서 git remote add ${res.githubRemote} <저장소 주소>를 실행하거나 설정 화면에서 GitHub 연동을 꺼 주세요.` },
+      );
+      if (res.githubPullRequest) {
+        const gh = await runProcess(s.ghCommand, ["auth", "status"], { cwd: s.cwd, timeoutSec: 20 });
+        if (gh.spawnError) checks.push({ code: "gh_missing", level: "warn", message: "풀 리퀘스트를 만들 GitHub CLI(gh)가 없어요.", hint: "https://cli.github.com 에서 설치한 뒤 gh auth login을 해 주세요." });
+        else if (gh.exitCode !== 0) checks.push({ code: "gh_not_logged_in", level: "warn", message: "GitHub CLI(gh)에 로그인되어 있지 않아요.", hint: "gh auth login을 해 주세요." });
+        else checks.push({ code: "gh_ok", level: "info", message: "GitHub CLI(gh) 로그인 확인" });
+      }
+    }
   } catch (err) {
     checks.push({
       code: "config_invalid",

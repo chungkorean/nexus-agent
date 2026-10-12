@@ -249,6 +249,9 @@ describe("settings server", () => {
     await post("/api/save", { results: { review: false, testCommand: "  python -m pytest -q  " } });
     expect(parse(read("routing.yaml")).results).toMatchObject({ autoMerge: false, review: false, testCommand: "python -m pytest -q" });
     expect((await post("/api/save", { results: { testCommand: "a\nb" } })).status).toBe(400);
+    await post("/api/save", { results: { githubPush: true, githubPullRequest: true, githubRemote: "upstream" } });
+    expect(parse(read("routing.yaml")).results).toMatchObject({ githubPush: true, githubPullRequest: true, githubRemote: "upstream" });
+    expect((await post("/api/save", { results: { githubRemote: "bad name; rm" } })).status).toBe(400);
 
     const bad = await post("/api/save", { results: { markDoneOnSuccess: "yes" } });
     expect(bad.status).toBe(400);
