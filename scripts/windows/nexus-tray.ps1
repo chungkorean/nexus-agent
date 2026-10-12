@@ -82,48 +82,126 @@ function Show-AppWindows {
 }
 
 # ---------- 켜는 중 화면 ----------
-# Nexus.exe로 켜면 앱 창이 뜰 때까지(Paperclip과 설정 화면이 켜질 때까지) 움직이는 막대가 있는 작은 창을 띄운다.
+# Nexus.exe로 켜면 앱 창이 뜰 때까지(Paperclip과 설정 화면이 켜질 때까지) 작은 창을 띄운다.
+# 창을 끌어서 옮길 수 있고, 항상 위에 있지 않아서 다른 창을 누르면 그 뒤로 갈 수 있다(작업 표시줄에서 다시 꺼낸다).
+# 움직이는 그림은 이미지 파일 없이 코드로 그린다: 파란 점 10개가 원을 돌고, 가운데에 N이 숨 쉬듯 커졌다 작아진다.
 $script:splash = $null
+$script:splashPanel = $null
+$script:splashAnim = $null
+$script:splashClock = $null
+$script:splashDrag = $null
+function Draw-SplashAnim($g, $size) {
+  $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
+  $g.TextRenderingHint = [System.Drawing.Text.TextRenderingHint]::AntiAliasGridFit
+  $cx = $size.Width / 2.0
+  $cy = $size.Height / 2.0
+  $t = $script:splashClock.Elapsed.TotalSeconds
+  $twoPi = 2 * [math]::PI
+  $n = 10
+  $ring = [math]::Min($size.Width, $size.Height) / 2.0 - 8
+  $head = $t * $twoPi * 0.9            # 약 1.1초에 한 바퀴(시계 방향). 프레임 속도와 상관없이 같은 속도.
+  for ($i = 0; $i -lt $n; $i++) {
+    $ang = $i * $twoPi / $n
+    $age = ($head - $ang) % $twoPi      # 머리(가장 진한 점)에서 얼마나 뒤처졌는지
+    if ($age -lt 0) { $age += $twoPi }
+    $k = 1.0 - ($age / $twoPi)           # 머리 1.0 → 꼬리 0.0
+    $alpha = [int](28 + 227 * [math]::Pow($k, 1.6))
+    $rad = 2.5 + 3.5 * $k
+    $brush = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb($alpha, 36, 89, 214))
+    $g.FillEllipse($brush, [single]($cx + $ring * [math]::Cos($ang) - $rad), [single]($cy + $ring * [math]::Sin($ang) - $rad), [single](2 * $rad), [single](2 * $rad))
+    $brush.Dispose()
+  }
+  $pulse = 1.0 + 0.05 * [math]::Sin($t * $twoPi * 1.4)
+  $r = 21 * $pulse
+  $core = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(36, 89, 214))
+  $g.FillEllipse($core, [single]($cx - $r), [single]($cy - $r), [single](2 * $r), [single](2 * $r))
+  $core.Dispose()
+  $fmt = New-Object System.Drawing.StringFormat
+  $fmt.Alignment = [System.Drawing.StringAlignment]::Center
+  $fmt.LineAlignment = [System.Drawing.StringAlignment]::Center
+  $font = New-Object System.Drawing.Font("Segoe UI", [single](20 * $pulse), [System.Drawing.FontStyle]::Bold, [System.Drawing.GraphicsUnit]::Pixel)
+  $g.DrawString("N", $font, [System.Drawing.Brushes]::White, (New-Object System.Drawing.RectangleF(0, 1, [single]$size.Width, [single]$size.Height)), $fmt)
+  $font.Dispose()
+  $fmt.Dispose()
+}
 function Show-Splash {
   $f = New-Object System.Windows.Forms.Form
   $f.FormBorderStyle = "None"
   $f.StartPosition = "CenterScreen"
-  $f.Size = New-Object System.Drawing.Size(380, 150)
+  $f.Size = New-Object System.Drawing.Size(380, 140)
   $f.BackColor = [System.Drawing.Color]::White
-  $f.TopMost = $true
+  $f.TopMost = $false
   $f.ShowInTaskbar = $true
   $f.Text = "Nexus"
-  $f.Padding = New-Object System.Windows.Forms.Padding(1)
   $f.add_Paint({ param($sender, $e) $e.Graphics.DrawRectangle([System.Drawing.Pens]::LightGray, 0, 0, $sender.Width - 1, $sender.Height - 1) })
+
+  $anim = New-Object System.Windows.Forms.Panel
+  $anim.Location = New-Object System.Drawing.Point(22, 27)
+  $anim.Size = New-Object System.Drawing.Size(86, 86)
+  # 깜박이지 않게 한 번에 그린다.
+  [System.Windows.Forms.Panel].GetProperty("DoubleBuffered", [System.Reflection.BindingFlags]"NonPublic,Instance").SetValue($anim, $true, $null)
+  $anim.add_Paint({ param($sender, $e) Draw-SplashAnim $e.Graphics $sender.ClientSize })
+  $f.Controls.Add($anim)
+
   $t = New-Object System.Windows.Forms.Label
   $t.Text = "Nexus를 켜는 중이에요"
   $t.Font = New-Object System.Drawing.Font("Malgun Gothic", 13, [System.Drawing.FontStyle]::Bold)
   $t.ForeColor = [System.Drawing.Color]::FromArgb(31, 36, 48)
-  $t.Location = New-Object System.Drawing.Point(24, 22)
+  $t.Location = New-Object System.Drawing.Point(124, 24)
   $t.AutoSize = $true
   $f.Controls.Add($t)
-  $bar = New-Object System.Windows.Forms.ProgressBar
-  $bar.Style = "Marquee"
-  $bar.MarqueeAnimationSpeed = 25
-  $bar.Location = New-Object System.Drawing.Point(26, 64)
-  $bar.Size = New-Object System.Drawing.Size(328, 10)
-  $f.Controls.Add($bar)
   $d = New-Object System.Windows.Forms.Label
   $d.Text = "Paperclip과 설정 화면을 켜고 있어요. 처음에는 1~2분 걸릴 수 있어요."
   $d.Font = New-Object System.Drawing.Font("Malgun Gothic", 9)
   $d.ForeColor = [System.Drawing.Color]::DimGray
-  $d.Location = New-Object System.Drawing.Point(24, 88)
-  $d.Size = New-Object System.Drawing.Size(340, 44)
+  $d.Location = New-Object System.Drawing.Point(124, 56)
+  $d.Size = New-Object System.Drawing.Size(240, 52)
   $f.Controls.Add($d)
+  $hint = New-Object System.Windows.Forms.Label
+  $hint.Text = "창을 끌어서 옮길 수 있어요"
+  $hint.Font = New-Object System.Drawing.Font("Malgun Gothic", 8)
+  $hint.ForeColor = [System.Drawing.Color]::Silver
+  $hint.Location = New-Object System.Drawing.Point(124, 114)
+  $hint.AutoSize = $true
+  $f.Controls.Add($hint)
+
+  # 창 어디를 잡아도 끌어서 옮긴다(테두리 없는 창이라 직접 처리). 화면 좌표로 계산해 자식 컨트롤 위에서도 똑같이 움직인다.
+  $down = { param($sender, $e)
+    if ($e.Button -eq [System.Windows.Forms.MouseButtons]::Left) {
+      $script:splashDrag = @{ From = [System.Windows.Forms.Cursor]::Position; Origin = $script:splash.Location }
+    }
+  }
+  $move = { param($sender, $e)
+    if ($script:splashDrag -and $script:splash) {
+      $now = [System.Windows.Forms.Cursor]::Position
+      $script:splash.Location = New-Object System.Drawing.Point(($script:splashDrag.Origin.X + $now.X - $script:splashDrag.From.X), ($script:splashDrag.Origin.Y + $now.Y - $script:splashDrag.From.Y))
+    }
+  }
+  $up = { param($sender, $e) $script:splashDrag = $null }
+  foreach ($c in @($f, $anim, $t, $d, $hint)) {
+    $c.add_MouseDown($down)
+    $c.add_MouseMove($move)
+    $c.add_MouseUp($up)
+  }
+
   $script:splashDetail = $d
+  $script:splashPanel = $anim
   $script:splash = $f
+  $script:splashClock = [System.Diagnostics.Stopwatch]::StartNew()
+  $script:splashAnim = New-Object System.Windows.Forms.Timer
+  $script:splashAnim.Interval = 33
+  $script:splashAnim.add_Tick({ try { if ($script:splashPanel) { $script:splashPanel.Invalidate() } } catch { } })
+  $script:splashAnim.Start()
   $f.Show()
   # 숨김 창으로 실행됐으면(SW_HIDE) 첫 Show가 무시되므로 한 번 더 보이게 한다.
   [NxWin]::ShowWindow($f.Handle, 5) | Out-Null
   [System.Windows.Forms.Application]::DoEvents()
 }
 function Close-Splash {
+  if ($script:splashAnim) { $script:splashAnim.Stop(); $script:splashAnim.Dispose(); $script:splashAnim = $null }
   if ($script:splash) { $script:splash.Close(); $script:splash.Dispose(); $script:splash = $null }
+  $script:splashPanel = $null
+  $script:splashDrag = $null
 }
 # Edge(없으면 Chrome)의 앱 모드로 Nexus 화면을 주소창 없는 창으로 연다.
 # 따로 쓰는 프로필이라 마이크 권한도 이 창에만 한 번 허락하면 된다.
