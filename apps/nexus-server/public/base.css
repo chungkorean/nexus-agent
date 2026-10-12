@@ -37,7 +37,7 @@
   }
 }
 * { box-sizing: border-box; }
-html { -webkit-text-size-adjust: 100%; }
+html { -webkit-text-size-adjust: 100%; scroll-padding-top: calc(var(--nav-h, 0px) + 12px); }
 body {
   margin: 0;
   background: var(--bg);
@@ -125,7 +125,9 @@ footer { color: var(--muted); font-size: 14px; margin-top: 24px; }
 .loading { text-align: center; padding: 60px 0; color: var(--muted); }
 
 /* 위쪽 메뉴 */
-.topnav { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 0 0 8px; }
+/* 위쪽 메뉴는 아래로 내려도 항상 보이게 고정한다. */
+.topnav { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: -24px -16px 8px; padding: 12px 16px 8px; position: sticky; top: 0; z-index: 50; background: var(--bg); }
+.topnav.stuck { box-shadow: 0 1px 0 var(--line), 0 4px 12px rgba(0,0,0,.05); }
 .topnav .brand { font-weight: 800; font-size: 18px; margin-right: 10px; color: var(--text); text-decoration: none; }
 .topnav a.tab { display: inline-flex; align-items: center; min-height: 40px; padding: 4px 14px; border-radius: 999px; color: var(--muted); text-decoration: none; font-weight: 600; font-size: 16px; border: 1.5px solid transparent; }
 .topnav a.tab:hover { border-color: var(--line); color: var(--text); }

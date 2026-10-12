@@ -67,7 +67,7 @@ details .inner { padding-top: 8px; }
 /* 왼쪽 메뉴 + 오른쪽 내용 */
 main { max-width: 1180px; }
 .settings { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 20px; align-items: start; }
-nav.side { position: sticky; top: 12px; display: flex; flex-direction: column; gap: 2px; background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 8px; box-shadow: var(--shadow); }
+nav.side { position: sticky; top: calc(var(--nav-h, 0px) + 12px); display: flex; flex-direction: column; gap: 2px; background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 8px; box-shadow: var(--shadow); }
 nav.side a { display: block; padding: 10px 12px; border-radius: 10px; text-decoration: none; color: var(--text); }
 nav.side a:hover { background: var(--bg); }
 nav.side a[aria-current=page] { background: var(--accent-soft); }

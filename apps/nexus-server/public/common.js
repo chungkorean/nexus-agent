@@ -92,5 +92,12 @@ function renderNav(active) {
     h("a", { class: "brand", href: "/studio" }, "Nexus"),
     NAV.map(([href, text, key]) => h("a", { class: "tab", href, "aria-current": key === active ? "page" : false }, text)));
   document.querySelector("main").prepend(nav);
+  // 고정된 메뉴 높이만큼 다른 고정 요소(설정의 왼쪽 메뉴)와 바로 가기 위치를 내린다.
+  const fit = () => document.documentElement.style.setProperty("--nav-h", nav.offsetHeight + "px");
+  fit();
+  window.addEventListener("resize", fit);
+  const stuck = () => nav.classList.toggle("stuck", window.scrollY > 4);
+  window.addEventListener("scroll", stuck, { passive: true });
+  stuck();
   return nav;
 }
