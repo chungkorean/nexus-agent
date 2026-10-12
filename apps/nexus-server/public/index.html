@@ -224,6 +224,15 @@ const PROVIDERS = [
   ["google", "Gemini / Google"],
   ["github-copilot", "GitHub Copilot"],
   ["openrouter", "OpenRouter"],
+  ["deepseek", "DeepSeek"],
+  ["xiaomi", "Xiaomi MiMo"],
+  ["nvidia", "NVIDIA NIM"],
+  ["moonshotai", "Moonshot (Kimi)"],
+  ["zhipuai", "Zhipu (GLM)"],
+  ["alibaba", "Alibaba (Qwen)"],
+  ["mistral", "Mistral"],
+  ["xai", "xAI (Grok)"],
+  ["groq", "Groq"],
   ["ollama", "Ollama (내 컴퓨터)"],
   ["opencode", "그 밖의 서비스"],
 ];
@@ -928,18 +937,28 @@ function renderModels() {
     const same = S.accounts.filter((acc) => acc.engine === d.engine);
     // 이미 지운 계정이 남아 있으면 빼 둔다.
     d.accounts = d.accounts.filter((id) => S.accounts.some((acc) => acc.id === id));
+    // 이 모델 회사의 계정만 먼저 보여 준다. 다른 회사 계정은 접어 둔다(이미 고른 것은 그대로 보임).
+    // '그 밖의 서비스'로 등록한 계정은 이름에 회사 이름(예: Xiaomi_MiMo_pro)이 있으면 그 회사 계정으로 본다.
+    const nameHit = (acc) => acc.provider === "opencode" && [prov, providerName(prov).split(/[ (]/)[0]].some((w) => w && (acc.id + " " + acc.label).toLowerCase().includes(w.toLowerCase()));
+    const mine = same.filter((acc) => d.engine === "claude-code" || acc.provider === prov || nameHit(acc) || d.accounts.includes(acc.id));
+    const others = same.filter((acc) => !mine.includes(acc));
+    const checkRow = (acc) => {
+      const idx = d.accounts.indexOf(acc.id);
+      return h("label", { class: "check" },
+        h("input", { type: "checkbox", checked: idx >= 0, onchange: (e) => {
+          if (e.target.checked) { if (!d.accounts.includes(acc.id)) d.accounts.push(acc.id); }
+          else d.accounts = d.accounts.filter((x) => x !== acc.id);
+          rerenderModels();
+        } }),
+        h("span", {}, acc.label, acc.provider && acc.provider !== prov ? h("span", { class: "small" }, " · " + (acc.provider === "opencode" ? "그 밖의 서비스" : providerName(acc.provider))) : null),
+        idx >= 0 && d.accounts.length > 1 ? h("span", { class: "order" }, (idx + 1) + "번째") : null);
+    };
     const checks = same.length
-      ? h("div", { class: "checks" }, same.map((acc) => {
-          const idx = d.accounts.indexOf(acc.id);
-          return h("label", { class: "check" },
-            h("input", { type: "checkbox", checked: idx >= 0, onchange: (e) => {
-              if (e.target.checked) { if (!d.accounts.includes(acc.id)) d.accounts.push(acc.id); }
-              else d.accounts = d.accounts.filter((x) => x !== acc.id);
-              rerenderModels();
-            } }),
-            h("span", {}, acc.label),
-            idx >= 0 && d.accounts.length > 1 ? h("span", { class: "order" }, (idx + 1) + "번째") : null);
-        }))
+      ? h("div", {},
+          mine.length ? h("div", { class: "checks" }, mine.map(checkRow)) : h("p", { class: "small" }, providerName(prov) + " 계정을 따로 추가하지 않았어요. 평소 로그인(opencode auth login)한 키를 써요."),
+          others.length ? h("details", {}, h("summary", {}, "다른 회사 계정 " + others.length + "개 보기"),
+            h("p", { class: "small" }, "OpenRouter처럼 여러 회사 모델을 함께 파는 계정이거나, 회사를 '그 밖의 서비스'로 등록한 계정일 때만 골라요."),
+            h("div", { class: "checks" }, others.map(checkRow))) : null)
       : h("p", { class: "small" }, d.engine === "claude-code" ? "Claude 구독 계정을 따로 추가하지 않았어요. 평소 로그인한 계정을 써요." : "OpenCode 계정을 따로 추가하지 않았어요. 'opencode auth login'으로 넣은 API 키를 그대로 써요.");
     const changeBtn = h("button", { type: "button", class: "small-btn" }, "모델 바꾸기");
     return [prov, h("div", { class: "model" },
