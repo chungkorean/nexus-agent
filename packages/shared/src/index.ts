@@ -5,3 +5,4 @@ export * from "./git.ts";
 export * from "./paths.ts";
 export * from "./state.ts";
 export * from "./worktree.ts";
+export * from "./usage.ts";

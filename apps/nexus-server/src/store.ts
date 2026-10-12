@@ -32,6 +32,9 @@ export const LIMITS = {
 
 export const MAX_BACKUPS = 20;
 
+/** 예산 칸에 적을 수 있는 최댓값 */
+export const BUDGET_LIMITS = { usd: 100_000, tokens: 100_000_000_000 } as const;
+
 /** 화면에서 보내는 변경 내용. 바꾼 항목만 담으면 된다. */
 export interface SettingsChanges {
   /** 작업 종류별 1순위·2순위 별칭. second가 null이면 2순위 없음 */
@@ -43,6 +46,8 @@ export interface SettingsChanges {
   highRiskAlias?: string;
   planning?: { mode?: "auto" | "always" | "never"; concurrency?: number; maxSubtasks?: number };
   /** 실행이 끝난 뒤 처리 */
+  /** 계정별 월 예산. null이나 0이면 예산 없음 */
+  budgets?: Record<string, { monthlyBudgetUsd?: number | null; monthlyTokenLimit?: number | null }>;
   results?: { autoMerge?: boolean; markDoneOnSuccess?: boolean; resolveConflicts?: boolean; runTests?: boolean; review?: boolean; testCommand?: string; githubPush?: boolean; githubPullRequest?: boolean; githubRemote?: string };
 }
 
@@ -152,7 +157,7 @@ export function applyChanges(
   const dirty = new Set<FileKey>();
   if (!isPlainObject(changesRaw)) return { sentences, problems: ["보낸 내용을 이해하지 못했어요. 화면을 새로 고쳐 주세요."], dirty };
   const changes = changesRaw as SettingsChanges;
-  const { models, routing } = loaded.docs;
+  const { models, routing, accounts } = loaded.docs;
 
   // 문장에는 바뀐 뒤의 표시 이름을 쓴다.
   const newLabels: Record<string, string> = {};
@@ -354,6 +359,39 @@ export function applyChanges(
         }
       }
     }
+  }
+
+  if (changes.budgets !== undefined) {
+    if (!isPlainObject(changes.budgets)) problems.push("예산 변경 내용을 이해하지 못했어요.");
+    else
+      for (const [id, c] of Object.entries(changes.budgets)) {
+        const acc = current.accounts[id];
+        if (!acc) {
+          problems.push(`'${id}' 계정을 찾지 못했어요. 화면을 새로 고쳐 주세요.`);
+          continue;
+        }
+        if (!isPlainObject(c)) continue;
+        const fields = [
+          ["monthlyBudgetUsd", "월 예산", (n: number) => `$${n}`, BUDGET_LIMITS.usd],
+          ["monthlyTokenLimit", "월 토큰 한도", (n: number) => `${n.toLocaleString("en-US")}개`, BUDGET_LIMITS.tokens],
+        ] as const;
+        for (const [key, name, show, max] of fields) {
+          const raw = c[key];
+          if (raw === undefined) continue;
+          const v = raw === null ? 0 : raw;
+          if (typeof v !== "number" || !Number.isFinite(v) || v < 0 || v > max) {
+            problems.push(`${acc.label}: ${name}은 0에서 ${max.toLocaleString("en-US")} 사이의 숫자로 적어 주세요. 비워 두면 제한이 없어요.`);
+            continue;
+          }
+          const value = key === "monthlyTokenLimit" ? Math.round(v) : Math.round(v * 100) / 100;
+          const prev = acc[key] ?? 0;
+          if (value === prev) continue;
+          if (value > 0) setScalar(accounts, ["accounts", id, key], value);
+          else accounts.deleteIn(["accounts", id, key]);
+          dirty.add("accounts");
+          sentences.push(`${acc.label}의 ${name}: ${prev ? show(prev) : "없음"} → ${value ? show(value) : "없음"}`);
+        }
+      }
   }
 
   sentences.push(...aliasSentences);

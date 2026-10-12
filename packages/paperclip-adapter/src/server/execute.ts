@@ -115,6 +115,11 @@ async function dispatch(ctx: AdapterExecutionContext, deps: DispatchDeps): Promi
   const cwd = settings.cwd;
   const executors = deps.executors(settings);
   const state = deps.accountState(settings);
+  state.setBudgets(config.accounts);
+  for (const acc of Object.values(config.accounts)) {
+    const over = state.overBudget(acc.id);
+    if (over) await log(`계정 ${acc.label}: ${over}. 다음 달 1일까지 이 계정은 건너뛰어요.`);
+  }
   const labels = labelNames(issue);
 
   // 3. 큰 이슈는 하위 작업으로 나눠 여러 AI에게 동시에 맡긴다.
@@ -130,9 +135,9 @@ async function dispatch(ctx: AdapterExecutionContext, deps: DispatchDeps): Promi
   }
 
   // 4. 한 번에 실행
-  const routes = planRoutes(classification, config, { isCoolingDown: (id) => state.isCoolingDown(id) });
+  const routes = planRoutes(classification, config, { isCoolingDown: (id) => state.isUnavailable(id) });
   if (!routes.length) {
-    const message = `${classification.taskType} 작업에 쓸 모델이 설정에 없거나, 계정이 모두 한도로 쉬는 중이에요.`;
+    const message = `${classification.taskType} 작업에 쓸 모델이 설정에 없거나, 계정이 모두 한도로 쉬는 중이거나 이번 달 예산을 다 썼어요.`;
     await safeComment(client, issue.id, `Nexus가 작업을 시작하지 못했어요. ${message}`);
     return failed(message, "no_route");
   }
@@ -153,9 +158,10 @@ async function dispatch(ctx: AdapterExecutionContext, deps: DispatchDeps): Promi
         prompt,
       });
     },
+    { issue: issue.identifier ?? issue.id, purpose: classification.taskType },
   );
   if (!attempts.length) {
-    const message = "쓸 수 있는 계정이 모두 한도로 쉬는 중이에요.";
+    const message = "쓸 수 있는 계정이 모두 한도로 쉬는 중이거나 이번 달 예산을 다 썼어요.";
     await safeComment(client, issue.id, `Nexus가 작업을 시작하지 못했어요. ${message}`);
     return failed(message, "no_route");
   }

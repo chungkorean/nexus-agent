@@ -155,6 +155,27 @@ details .inner { padding-top: 8px; }
 .switch input:checked + .track::after { transform: translateX(28px); }
 .switch input:focus-visible + .track { outline: 3px solid var(--focus); outline-offset: 2px; }
 
+/* 7. 사용량 */
+.period-choices { grid-template-columns: repeat(4, 1fr); }
+.period-choices .choice { text-align: center; padding: 10px 8px; }
+.period-choices .choice strong { font-size: 17px; }
+.stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 0 0 16px; }
+.stat { border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; }
+.stat span { display: block; font-size: 14px; color: var(--muted); }
+.stat strong { font-size: 22px; font-variant-numeric: tabular-nums; }
+table.usage td.num-cell { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.meter { height: 10px; border-radius: 999px; background: var(--line); overflow: hidden; margin-top: 4px; min-width: 80px; }
+.meter > i { display: block; height: 100%; background: var(--accent); }
+.meter.full > i { background: var(--bad); }
+.budget-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.budget-line { font-size: 15px; margin-top: 8px; }
+input[type=number] {
+  font: inherit; color: var(--text); background: var(--card);
+  border: 1.5px solid var(--line); border-radius: 10px;
+  padding: 10px 12px; min-height: 48px; width: 100%;
+}
+.hint-list { margin: 0 0 16px; }
+
 /* 아래 고정 막대 */
 .bar {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
@@ -209,7 +230,8 @@ footer { color: var(--muted); font-size: 14px; margin-top: 24px; }
   table.tasks td { border: 0; padding: 4px 0; }
   table.tasks td.task { width: 100%; font-size: 18px; }
   .cell-label { display: block; }
-  .choices, .engine-choices, .row2 { grid-template-columns: 1fr; }
+  .choices, .engine-choices, .row2, .budget-fields { grid-template-columns: 1fr; }
+  .period-choices, .stats { grid-template-columns: 1fr 1fr; }
   .bar-buttons { width: 100%; }
   .bar-buttons button { flex: 1 1 0; padding: 8px 6px; }
 }
@@ -366,7 +388,22 @@ function toDraft(s) {
     highRiskAlias: s.routing.highRiskAlias,
     planning: { mode: s.routing.planning.mode, concurrency: s.routing.planning.concurrency, maxSubtasks: s.routing.planning.maxSubtasks },
     results: { ...s.routing.results },
+    budgets: budgetDraft(s.accounts),
   };
+}
+
+function budgetDraft(accounts) {
+  const out = {};
+  for (const a of accounts) out[a.id] = { usd: a.monthlyBudgetUsd ? String(a.monthlyBudgetUsd) : "", tokens: a.monthlyTokenLimit ? String(a.monthlyTokenLimit) : "" };
+  return out;
+}
+
+// 예산 칸: 비우면 null(제한 없음), 숫자가 아니면 그대로 보내 서버가 알려 주게 한다.
+function budgetValue(text) {
+  const t = String(text).replace(/[,\s]/g, "");
+  if (!t) return null;
+  const n = Number(t);
+  return Number.isFinite(n) ? n : t;
 }
 
 // 바꾼 항목만 담아 서버에 보낸다.
@@ -390,6 +427,14 @@ function buildChanges() {
   for (const k of ["mode", "concurrency", "maxSubtasks"]) {
     if (draft.planning[k] !== orig.planning[k]) (c.planning = c.planning || {})[k] = draft.planning[k];
   }
+  for (const [id, b] of Object.entries(draft.budgets)) {
+    const o = orig.budgets[id];
+    if (!o) continue;
+    const d = {};
+    if (budgetValue(b.usd) !== budgetValue(o.usd)) d.monthlyBudgetUsd = budgetValue(b.usd);
+    if (budgetValue(b.tokens) !== budgetValue(o.tokens)) d.monthlyTokenLimit = budgetValue(b.tokens);
+    if (Object.keys(d).length) (c.budgets = c.budgets || {})[id] = d;
+  }
   for (const k of ["autoMerge", "markDoneOnSuccess", "resolveConflicts", "runTests", "review", "testCommand", "githubPush", "githubPullRequest", "githubRemote"]) {
     const v = typeof draft.results[k] === "string" ? draft.results[k].trim() : draft.results[k];
     if (v !== orig.results[k]) (c.results = c.results || {})[k] = v;
@@ -404,6 +449,7 @@ function countChanges(c) {
   n += ["preferLocal", "maxFallbacks", "highRiskAlias"].filter((k) => k in c).length;
   n += Object.keys(c.planning || {}).length;
   n += Object.keys(c.results || {}).length;
+  for (const v of Object.values(c.budgets || {})) n += Object.keys(v).length;
   return n;
 }
 
@@ -521,10 +567,126 @@ function toggleRow(id, title, desc, checked, set, disabled) {
 }
 
 function accountStatus(a) {
+  const u = U && U.accounts.find((x) => x.id === a.id);
+  if (u && u.budget && u.budget.exceeded) return ["bad", "이번 달 예산 다 씀"];
   if (a.cooldown && a.cooldown.reason === "provider_auth") return ["bad", "로그인 필요"];
   if (a.cooldown) return ["warn", "한도로 쉬는 중 (~" + formatUntil(a.cooldown.until) + "까지)"];
   if (!a.loggedIn) return ["bad", "로그인 필요"];
   return ["ok", "사용 가능"];
+}
+
+function budgetBox(a) {
+  const b = draft.budgets[a.id] || (draft.budgets[a.id] = { usd: "", tokens: "" });
+  const u = U && U.accounts.find((x) => x.id === a.id);
+  const set = b.usd || b.tokens;
+  return h("details", { "data-key": "budget-" + a.id }, h("summary", {}, set ? "월 예산: " + budgetText(b) : "월 예산 정하기"),
+    h("div", { class: "inner" },
+      h("div", { class: "budget-fields" },
+        h("label", { class: "field" }, h("span", {}, "월 예산 (달러)"),
+          h("input", { type: "text", inputmode: "decimal", value: b.usd, placeholder: "비우면 제한 없음", oninput: (e) => { b.usd = e.target.value; refreshBar(); } })),
+        h("label", { class: "field" }, h("span", {}, "월 토큰 한도"),
+          h("input", { type: "text", inputmode: "numeric", value: b.tokens, placeholder: "비우면 제한 없음", oninput: (e) => { b.tokens = e.target.value; refreshBar(); } }))),
+      h("p", { class: "small" }, "이번 달 사용량이 이 값을 넘으면, 다음 달 1일까지 이 계정을 건너뛰고 같은 AI의 다음 계정이나 2순위 AI로 넘어가요. Claude 구독은 비용 대신 환산 금액이 기록되니 토큰 한도가 더 정확해요."),
+      u && u.budget ? budgetMeters(u.budget) : null));
+}
+
+function budgetText(b) {
+  const parts = [];
+  if (b.usd) parts.push("$" + b.usd);
+  if (b.tokens) parts.push(fmtTokens(Number(String(b.tokens).replace(/[,\s]/g, ""))) + " 토큰");
+  return parts.join(", ");
+}
+
+function budgetMeters(b) {
+  const rows = [];
+  if (b.monthlyBudgetUsd) rows.push(meterLine("이번 달 비용", "$" + b.usedUsd.toFixed(2) + " / $" + b.monthlyBudgetUsd, b.usedUsd / b.monthlyBudgetUsd));
+  if (b.monthlyTokenLimit) rows.push(meterLine("이번 달 토큰", fmtTokens(b.usedTokens) + " / " + fmtTokens(b.monthlyTokenLimit), b.usedTokens / b.monthlyTokenLimit));
+  return h("div", {}, rows);
+}
+
+function meterLine(title, text, ratio) {
+  const r = Math.max(0, Math.min(1, ratio || 0));
+  return h("div", { class: "budget-line" }, h("span", {}, title + ": " + text + " (" + Math.round((ratio || 0) * 100) + "%)"),
+    h("div", { class: "meter" + (ratio >= 1 ? " full" : ""), role: "img", "aria-label": title + " " + Math.round((ratio || 0) * 100) + "%" }, h("i", { style: "width:" + (r * 100).toFixed(1) + "%" })));
+}
+
+function fmtTokens(n) {
+  if (!n) return "0";
+  if (n >= 100000000) return (n / 100000000).toFixed(n >= 1e9 ? 0 : 1).replace(/\.0$/, "") + "억";
+  if (n >= 10000) return (n / 10000).toFixed(n >= 1e5 ? 0 : 1).replace(/\.0$/, "") + "만";
+  return n.toLocaleString("ko-KR");
+}
+
+function fmtUsd(n) {
+  return n ? "$" + (n < 1 ? n.toFixed(3) : n.toFixed(2)) : "$0";
+}
+
+function rate(t) {
+  return t.runs ? Math.round((t.ok / t.runs) * 100) + "%" : "-";
+}
+
+const PERIODS = [["today", "오늘"], ["7d", "최근 7일"], ["30d", "최근 30일"], ["month", "이번 달"]];
+const PURPOSES = { design: "설계", implement: "구현", refactor: "리팩터", test: "테스트 작성", review: "검토", docs: "문서", research: "조사·분석", ops: "터미널·파일", plan: "작업 나누기", conflict: "충돌 해결" };
+let U = null;          // 사용량
+let period = "month";
+try { period = localStorage.getItem("nexus.period") || "month"; } catch (e) { /* 저장소를 못 써도 된다 */ }
+
+async function loadUsage() {
+  try { U = await api("/api/usage?period=" + encodeURIComponent(period)); }
+  catch (e) { U = { error: e.error || "사용량을 읽지 못했어요." }; }
+}
+
+function renderUsage() {
+  const sec = h("section", { class: "card", id: "sec-usage" },
+    sectionTitle(7, "사용량"),
+    h("p", { class: "help" }, "Nexus가 AI를 부를 때마다 남긴 기록이에요. 공급자 화면의 청구 금액과는 조금 다를 수 있어요."),
+    h("div", { class: "choices period-choices", role: "radiogroup", "aria-label": "기간" },
+      PERIODS.map(([v, name]) => h("label", { class: "choice" },
+        h("input", { type: "radio", name: "period", value: v, checked: period === v, onchange: async () => {
+          period = v;
+          try { localStorage.setItem("nexus.period", v); } catch (e) { /* 무시 */ }
+          await loadUsage();
+          $("sec-usage").replaceWith(renderUsage());
+        } }),
+        h("strong", {}, name)))));
+  if (!U) return sec;
+  if (U.error) { sec.append(h("p", { class: "notice bad" }, U.error)); return sec; }
+  const t = U.totals;
+  sec.append(h("div", { class: "stats" },
+    h("div", { class: "stat" }, h("span", {}, "실행"), h("strong", {}, t.runs + "번")),
+    h("div", { class: "stat" }, h("span", {}, "성공률"), h("strong", {}, rate(t))),
+    h("div", { class: "stat" }, h("span", {}, "토큰 (입력+출력)"), h("strong", {}, fmtTokens(t.inputTokens + t.outputTokens))),
+    h("div", { class: "stat" }, h("span", {}, "비용"), h("strong", {}, fmtUsd(t.costUsd)))));
+  if (U.hints.length) {
+    sec.append(h("div", { class: "notice info hint-list" }, h("strong", {}, "기록으로 본 제안"), h("ul", {}, U.hints.map((x) => h("li", {}, x.text)))));
+  }
+  if (!t.runs) {
+    sec.append(h("p", { class: "empty" }, "이 기간에는 기록이 없어요. 기록은 이번 업데이트 이후 실행부터 쌓여요."));
+    return sec;
+  }
+  const accRows = U.accounts.filter((a) => a.totals.runs || a.budget).map((a) => h("tr", {},
+    h("td", { class: "task" }, a.label),
+    h("td", { class: "num-cell" }, h("span", { class: "cell-label" }, "실행"), a.totals.runs + "번 (성공 " + rate(a.totals) + ")"),
+    h("td", { class: "num-cell" }, h("span", { class: "cell-label" }, "토큰"), fmtTokens(a.totals.inputTokens) + " / " + fmtTokens(a.totals.outputTokens)),
+    h("td", { class: "num-cell" }, h("span", { class: "cell-label" }, "비용"), fmtUsd(a.totals.costUsd)),
+    h("td", {}, h("span", { class: "cell-label" }, "이번 달 예산"), a.budget ? budgetMeters(a.budget) : h("span", { class: "small" }, "없음"))));
+  sec.append(h("h3", { class: "subhead" }, "계정별"),
+    h("table", { class: "tasks usage" },
+      h("thead", {}, h("tr", {}, h("th", {}, "계정"), h("th", {}, "실행"), h("th", {}, "토큰 (입력 / 출력)"), h("th", {}, "비용"), h("th", {}, "이번 달 예산"))),
+      h("tbody", {}, accRows)));
+  sec.append(h("h3", { class: "subhead" }, "AI 모델별"),
+    h("table", { class: "tasks usage" },
+      h("thead", {}, h("tr", {}, h("th", {}, "AI 모델"), h("th", {}, "실행"), h("th", {}, "토큰 (입력 / 출력)"), h("th", {}, "비용"))),
+      h("tbody", {}, U.models.map((m) => h("tr", {},
+        h("td", { class: "task" }, m.label, h("span", { class: "extra" }, m.model)),
+        h("td", { class: "num-cell" }, h("span", { class: "cell-label" }, "실행"), m.totals.runs + "번 (성공 " + rate(m.totals) + ")"),
+        h("td", { class: "num-cell" }, h("span", { class: "cell-label" }, "토큰"), fmtTokens(m.totals.inputTokens) + " / " + fmtTokens(m.totals.outputTokens)),
+        h("td", { class: "num-cell" }, h("span", { class: "cell-label" }, "비용"), fmtUsd(m.totals.costUsd)))))));
+  sec.append(h("details", { "data-key": "recent" }, h("summary", {}, "최근 실행 " + U.recent.length + "개"),
+    h("div", { class: "inner" }, h("ul", { class: "small" }, U.recent.map((e) => h("li", {},
+      formatUntil(e.at) + " · " + (e.issue || "") + " " + (PURPOSES[e.purpose] || e.purpose || "") + " · " + e.aliasLabel + (e.accountLabel ? " (" + e.accountLabel + ")" : "") +
+      " · " + (e.ok ? "성공" : "실패" + (e.errorFamily ? " (" + e.errorFamily + ")" : "")) + " · " + fmtTokens(e.inputTokens + e.outputTokens) + " 토큰" + (e.costUsd ? " · " + fmtUsd(e.costUsd) : "")))))));
+  return sec;
 }
 
 function renderAccounts() {
@@ -537,6 +699,7 @@ function renderAccounts() {
             h("div", {}, h("div", { class: "account-name" }, a.label), h("div", { class: "account-meta" }, provider + " · " + a.id)),
             h("span", { class: "badge " + kind }, text)),
           a.usedBy.length ? h("div", { class: "small" }, "쓰는 AI 모델: " + a.usedBy.join(", ")) : null,
+          budgetBox(a),
           h("div", { class: "account-actions" },
             a.provider === "ollama" ? null : h("button", { type: "button", class: "small-btn", onclick: () => loginAccount(a) }, "로그인 창 열기"),
             a.cooldown ? h("button", { type: "button", class: "small-btn", onclick: () => resetAccount(a) }, "상태 초기화") : null,
@@ -640,7 +803,7 @@ function renderMisc() {
 function rerender() {
   const y = window.scrollY;
   const open = [...document.querySelectorAll("details[open]")].map((d) => d.closest("section").id + ":" + [...d.closest("section").querySelectorAll("details")].indexOf(d));
-  $("app").replaceChildren(renderTasks(), renderPlanning(), renderResults(), renderAccounts(), renderModels(), renderMisc());
+  $("app").replaceChildren(renderTasks(), renderPlanning(), renderResults(), renderAccounts(), renderModels(), renderMisc(), renderUsage());
   for (const key of open) {
     const [sec, i] = key.split(":");
     const d = document.querySelectorAll("#" + sec + " details")[Number(i)];
@@ -662,12 +825,15 @@ function rerenderModels() {
 
 // ---------- 불러오기와 동작 ----------
 async function load(keepDraft) {
-  const s = await api("/api/state");
+  const [s] = await Promise.all([api("/api/state"), loadUsage()]);
   S = s;
   const fresh = toDraft(s);
   if (keepDraft && draft) {
     // 계정만 새로 고치고, 저장하지 않은 편집 내용은 그대로 둔다.
     orig.aliases = fresh.aliases;
+    orig.budgets = fresh.budgets;
+    for (const id of Object.keys(draft.budgets)) if (!fresh.budgets[id]) delete draft.budgets[id];
+    for (const id of Object.keys(fresh.budgets)) if (!draft.budgets[id]) draft.budgets[id] = clone(fresh.budgets[id]);
     for (const [name, a] of Object.entries(draft.aliases)) {
       if (!fresh.aliases[name]) delete draft.aliases[name];
     }

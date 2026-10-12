@@ -127,6 +127,12 @@ export function validateConfig(modelsRaw: unknown, routingRaw: unknown, accounts
         label: typeof v.label === "string" && v.label ? v.label : id,
         dir: typeof v.dir === "string" && v.dir ? v.dir : path.join(accountsDir, id),
       };
+      for (const key of ["monthlyBudgetUsd", "monthlyTokenLimit"] as const) {
+        const n = v[key];
+        if (n === undefined || n === null) continue;
+        if (typeof n !== "number" || !Number.isFinite(n) || n < 0) problems.push(`계정 ${id}: ${key}는 0 이상의 숫자여야 해요`);
+        else if (n > 0) accounts[id]![key] = n;
+      }
     }
   }
 

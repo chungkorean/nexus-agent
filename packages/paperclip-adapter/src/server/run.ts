@@ -1,5 +1,5 @@
 import type { PaperclipClient } from "@nexus/paperclip-client";
-import type { AccountState, Engine, Executor, Route, RunOutcome, RunRequest, UsageSummary } from "@nexus/shared";
+import type { AccountState, Engine, Executor, Route, RunOutcome, RunRequest, UsageEntry, UsageSummary } from "@nexus/shared";
 
 export const ENGINE_LABEL: Record<Engine, string> = { opencode: "OpenCode", "claude-code": "Claude Code" };
 export const PROVIDER_ERRORS = new Set(["provider_quota", "provider_auth", "provider_unavailable", "spawn_failed"]);
@@ -23,17 +23,21 @@ export async function runRoutes(
   state: AccountState,
   log: Log,
   before?: (route: Route) => Promise<void>,
+  tag: UsageTag = {},
 ): Promise<Attempt[]> {
   const attempts: Attempt[] = [];
   for (const route of routes) {
-    if (route.accountId && state.isCoolingDown(route.accountId)) {
-      await log(`${routeName(route)}: 계정이 쉬는 중이라 건너뛰어요.`);
+    const unavailable = route.accountId ? state.unavailableReason(route.accountId) : null;
+    if (unavailable) {
+      await log(`${routeName(route)}: ${unavailable}. 건너뛰어요.`);
       continue;
     }
     await log(`${ENGINE_LABEL[route.engine]}로 실행: ${routeName(route)}, 모델 ${route.model}`);
     await before?.(route);
+    const started = Date.now();
     const outcome = await executors[route.engine].run({ ...req, model: route.model, accountDir: route.accountDir });
     attempts.push({ route, outcome });
+    state.record(usageEntry(route, outcome, Date.now() - started, tag));
     if (outcome.ok || !outcome.errorFamily || !PROVIDER_ERRORS.has(outcome.errorFamily)) break;
     if (route.accountId && state.report(route.accountId, outcome.errorFamily, outcome.errorMessage)) {
       await log(`계정 ${route.accountLabel ?? route.accountId}을 잠시 쉬게 해요 (${outcome.errorFamily}).`);
@@ -41,6 +45,32 @@ export async function runRoutes(
     await log(`${routeName(route)} 실패(${outcome.errorFamily}): ${outcome.errorMessage}. 다음 순서로 넘어가요.`);
   }
   return attempts;
+}
+
+/** 사용량 기록에 붙이는 꼬리표 */
+export interface UsageTag {
+  issue?: string;
+  /** 작업 종류(implement 등) 또는 plan, review, conflict */
+  purpose?: string;
+}
+
+export function usageEntry(route: Route, o: RunOutcome, durationMs: number, tag: UsageTag): UsageEntry {
+  return {
+    at: new Date().toISOString(),
+    ...(tag.issue ? { issue: tag.issue } : {}),
+    ...(tag.purpose ? { purpose: tag.purpose } : {}),
+    alias: route.alias,
+    engine: route.engine,
+    model: o.model || route.model,
+    ...(route.accountId ? { accountId: route.accountId } : {}),
+    ok: o.ok,
+    ...(o.errorFamily ? { errorFamily: o.errorFamily } : {}),
+    inputTokens: o.usage?.inputTokens ?? 0,
+    outputTokens: o.usage?.outputTokens ?? 0,
+    cachedInputTokens: o.usage?.cachedInputTokens ?? 0,
+    costUsd: o.costUsd ?? 0,
+    durationMs,
+  };
 }
 
 export function routeName(r: Route): string {

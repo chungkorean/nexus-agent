@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { Account, ErrorFamily } from "./types.ts";
+import { addTotals, appendUsage, budgetExceeded, budgetOf, emptyTotals, monthStart, readUsage, type Budget, type UsageEntry, type UsageTotals } from "./usage.ts";
 
 export interface AccountCooldown {
   /** ISO 시각. 이 시각까지는 이 계정을 건너뛴다. */
@@ -24,13 +25,57 @@ export const COOLDOWN_MINUTES: Partial<Record<ErrorFamily, number>> = {
 export class AccountState {
   private data: Record<string, AccountCooldown>;
   private readonly file: string;
+  private budgets: Record<string, Budget> = {};
+  /** 예산이 있는 계정의 이번 달 사용량. setBudgets에서 읽고 record로 늘린다. */
+  private monthUsage: Record<string, UsageTotals> = {};
+  private month = 0;
 
   constructor(
-    stateDir: string,
+    private readonly stateDir: string,
     private readonly now: () => number = Date.now,
   ) {
     this.file = path.join(stateDir, "accounts-state.json");
     this.data = AccountState.read(this.file);
+  }
+
+  /** 계정별 월 예산을 알려 준다. 이번 달 기록을 읽어 이미 쓴 양을 계산한다. */
+  setBudgets(accounts: Record<string, Pick<Account, "monthlyBudgetUsd" | "monthlyTokenLimit">>): void {
+    this.budgets = {};
+    for (const [id, acc] of Object.entries(accounts)) {
+      const b = budgetOf(acc);
+      if (b) this.budgets[id] = b;
+    }
+    this.month = monthStart(this.now());
+    this.monthUsage = {};
+    if (!Object.keys(this.budgets).length) return;
+    for (const e of readUsage(this.stateDir, this.month)) {
+      if (e.accountId && this.budgets[e.accountId]) addTotals((this.monthUsage[e.accountId] ??= emptyTotals()), e);
+    }
+  }
+
+  /** 예산을 넘었으면 이유, 아니면 null */
+  overBudget(accountId: string): string | null {
+    const budget = this.budgets[accountId];
+    if (!budget) return null;
+    if (monthStart(this.now()) !== this.month) this.setBudgets(this.budgets);
+    return budgetExceeded(budget, this.monthUsage[accountId] ?? emptyTotals());
+  }
+
+  /** 지금 이 계정을 쓰면 안 되는 이유(한도로 쉬는 중, 예산 초과). 써도 되면 null */
+  unavailableReason(accountId: string): string | null {
+    const c = this.get(accountId);
+    if (c) return `계정이 쉬는 중이에요 (${c.reason})`;
+    return this.overBudget(accountId);
+  }
+
+  isUnavailable(accountId: string): boolean {
+    return this.unavailableReason(accountId) !== null;
+  }
+
+  /** 모델을 한 번 부른 기록을 남긴다. */
+  record(entry: UsageEntry): void {
+    appendUsage(this.stateDir, entry);
+    if (entry.accountId && this.budgets[entry.accountId]) addTotals((this.monthUsage[entry.accountId] ??= emptyTotals()), entry);
   }
 
   static read(file: string): Record<string, AccountCooldown> {

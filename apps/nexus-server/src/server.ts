@@ -5,6 +5,7 @@ import type { AddressInfo } from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { AccountState, accountHasLogin, ConfigError, type Account, type Engine, type NexusConfig } from "@nexus/shared";
+import { USAGE_PERIODS, usageReport, type UsagePeriod } from "./usage.ts";
 import { buildLoginCommand, defaultLauncher, type LaunchResult, type LoginCommand } from "./login.ts";
 import {
   addAccountToDoc,
@@ -118,6 +119,8 @@ export function createSettingsServer(opts: SettingsServerOptions): SettingsServe
         provider: acc.provider,
         label: acc.label,
         dir: acc.dir,
+        monthlyBudgetUsd: acc.monthlyBudgetUsd ?? null,
+        monthlyTokenLimit: acc.monthlyTokenLimit ?? null,
         loggedIn: accountHasLogin(acc),
         cooldown: cooldowns[acc.id] ?? null,
         usedBy: Object.entries(config.aliases)
@@ -331,6 +334,13 @@ export function createSettingsServer(opts: SettingsServerOptions): SettingsServe
       if (pathname === "/api/state") {
         if (req.method !== "GET") return send(res, 405, { ok: false, error: "지원하지 않는 요청이에요." });
         return send(res, 200, { ok: true, ...state() });
+      }
+      if (pathname === "/api/usage") {
+        if (req.method !== "GET") return send(res, 405, { ok: false, error: "지원하지 않는 요청이에요." });
+        const period = (url.searchParams.get("period") ?? "month") as UsagePeriod;
+        if (!USAGE_PERIODS.includes(period)) throw new HttpError(400, "기간은 today, 7d, 30d, month 중 하나예요.");
+        const { config } = loadValid();
+        return send(res, 200, { ok: true, ...usageReport(config, opts.stateDir, period) });
       }
       const route = routes[pathname];
       if (!route) return send(res, 404, { ok: false, error: "찾는 기능이 없어요." });

@@ -45,7 +45,7 @@ export async function makePlan(env: PlannedEnv): Promise<{ plan: Plan | null; at
   const { config, settings, issue } = env;
   const policy = config.routing.planning;
   const chain = [...new Set([policy.planner, ...config.routing.taskTypes.design])].slice(0, config.routing.maxFallbacks + 1);
-  const routes = expandAliases(chain, config, { isCoolingDown: (id) => env.state.isCoolingDown(id) });
+  const routes = expandAliases(chain, config, { isCoolingDown: (id) => env.state.isUnavailable(id) });
   if (!routes.length) return { plan: null, attempts: [], reason: "계획을 세울 모델·계정이 모두 쉬는 중" };
 
   const prompt = buildPlanPrompt({ identifier: issue.identifier, title: issue.title, description: issue.description, cwd: settings.cwd, maxSubtasks: policy.maxSubtasks });
@@ -56,6 +56,8 @@ export async function makePlan(env: PlannedEnv): Promise<{ plan: Plan | null; at
     env.executors,
     env.state,
     env.log,
+    undefined,
+    { issue: issue.identifier ?? issue.id, purpose: "plan" },
   );
   const last = attempts[attempts.length - 1];
   if (!last?.outcome.ok) return { plan: null, attempts, reason: `계획 실패: ${last?.outcome.errorMessage ?? "실행할 모델 없음"}` };
@@ -241,7 +243,7 @@ async function runSubtask(
   const { client, config, settings, log, classification } = env;
   const run = shared.runs.get(s.key)!;
   const slog: Log = (line) => log(`[${s.key}] ${line}`);
-  const routes = planRoutes({ taskType: s.taskType, risk: classification.risk }, config, { isCoolingDown: (id) => env.state.isCoolingDown(id), spread: index });
+  const routes = planRoutes({ taskType: s.taskType, risk: classification.risk }, config, { isCoolingDown: (id) => env.state.isUnavailable(id), spread: index });
   await safeStatus(client, run.childId, "in_progress", slog);
 
   const finish = async (result: Partial<SubtaskRun>): Promise<Partial<SubtaskRun>> => {
@@ -299,7 +301,10 @@ async function runSubtaskRoutes(env: PlannedEnv, plan: Plan, s: Subtask, routes:
     risk: env.classification.risk,
     cwd,
   });
-  return runRoutes(routes, { cwd, prompt, timeoutSec: env.settings.timeoutSec, onLog: env.ctx.onLog, signal: env.ctx.signal }, env.executors, env.state, log);
+  return runRoutes(routes, { cwd, prompt, timeoutSec: env.settings.timeoutSec, onLog: env.ctx.onLog, signal: env.ctx.signal }, env.executors, env.state, log, undefined, {
+    issue: env.issue.identifier ?? env.issue.id,
+    purpose: s.taskType,
+  });
 }
 
 const TASK_TYPE_KO: Record<string, string> = {

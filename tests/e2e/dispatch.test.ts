@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { PaperclipClient } from "@nexus/paperclip-client";
+import { appendUsage, readUsage } from "@nexus/shared";
 import { defaultDeps, executeDispatch, type DispatchDeps } from "../../packages/paperclip-adapter/src/server/execute.ts";
 import { readSettings, withResultPolicy } from "../../packages/paperclip-adapter/src/settings.ts";
 import { testDispatchEnvironment } from "../../packages/paperclip-adapter/src/server/test.ts";
@@ -176,6 +177,36 @@ describe("nexus_dispatch 어댑터", () => {
     expect(result.model).toBe("openai/gpt-5");
     expect((result.resultJson!.attempts as unknown[]).length).toBe(2);
     expect(paperclip.comments[0]!.body).toContain("coder(provider_quota) 실패 후 reviewer로 넘어감");
+  });
+
+  it("이번 달 예산을 다 쓴 계정은 건너뛰고 다음 모델로 넘어가며, 모든 실행을 사용량에 기록한다", async () => {
+    const cfgDir = path.join(tmp, "cfg");
+    mkdirSync(cfgDir, { recursive: true });
+    writeFileSync(
+      path.join(cfgDir, "models.yaml"),
+      readFileSync(path.join(REPO_CONFIG, "models.yaml"), "utf8").replace("    model: sonnet\n", "    model: sonnet\n    accounts: [claude-main]\n"),
+    );
+    writeFileSync(
+      path.join(cfgDir, "routing.yaml"),
+      readFileSync(path.join(REPO_CONFIG, "routing.yaml"), "utf8").replace("implement: [coder, smart]", "implement: [coder, reviewer]"),
+    );
+    writeFileSync(path.join(cfgDir, "accounts.yaml"), "accounts:\n  claude-main:\n    engine: claude-code\n    label: 개인\n    monthlyTokenLimit: 100\n");
+    const stateDir = path.join(tmp, "nexus-home", "state");
+    appendUsage(stateDir, {
+      at: new Date().toISOString(), alias: "coder", engine: "claude-code", model: "sonnet", accountId: "claude-main", ok: true,
+      inputTokens: 80, outputTokens: 40, cachedInputTokens: 0, costUsd: 0, durationMs: 1,
+    });
+    paperclip.issues.set("NEX-1", { id: "NEX-1", identifier: "NEX-1", title: "검색 기능 구현", description: "검색 함수를 추가", companyId: "co-1" });
+
+    const result = await executeDispatch(ctx({ configDir: cfgDir }), deps);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.model).toBe("openai/gpt-5");
+    expect(logs.join("")).toContain("이번 달 토큰 한도 100개를 다 썼어요");
+    const usage = readUsage(stateDir);
+    expect(usage).toHaveLength(2);
+    expect(usage[1]).toMatchObject({ issue: "NEX-1", purpose: "implement", alias: "reviewer", model: "openai/gpt-5", ok: true });
+    expect(usage[1]!.accountId).toBeUndefined();
   });
 
   it("작업 자체가 실패하면 다른 모델로 반복하지 않고 실패로 보고한다", async () => {

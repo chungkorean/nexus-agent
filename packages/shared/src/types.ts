@@ -44,6 +44,10 @@ export interface Account {
   label: string;
   /** Claude Code는 CLAUDE_CONFIG_DIR, OpenCode는 XDG_DATA_HOME으로 넘기는 폴더 */
   dir: string;
+  /** 월 예산(달러). 넘으면 그달에는 이 계정을 건너뛰고 대체 순서의 다음으로 넘어간다. */
+  monthlyBudgetUsd?: number;
+  /** 월 토큰 한도(입력+출력). 구독 계정처럼 비용이 0으로 찍히는 계정에 쓴다. */
+  monthlyTokenLimit?: number;
 }
 
 export interface Route {

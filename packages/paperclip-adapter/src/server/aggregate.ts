@@ -88,13 +88,15 @@ export async function aggregate(
         return result;
       }
       await log(`${branch}를 합치다 충돌이 났어요 (${merged.conflicts.join(", ")}). AI에게 풀어 달라고 할게요.`);
-      const routes = planRoutes({ taskType: "implement", risk: "high" }, config, { isCoolingDown: (id) => env.state.isCoolingDown(id) });
+      const routes = planRoutes({ taskType: "implement", risk: "high" }, config, { isCoolingDown: (id) => env.state.isUnavailable(id) });
       const attempts = await runRoutes(
         routes,
         { cwd: wt.dir, prompt: conflictPrompt(plan, key, merged.conflicts, env.issue.identifier ?? env.issue.id), timeoutSec: Math.min(settings.timeoutSec, 900), onLog: ctx.onLog, signal: ctx.signal },
         env.executors,
         env.state,
         (line) => log(`[충돌 해결] ${line}`),
+        undefined,
+        { issue: env.issue.identifier ?? env.issue.id, purpose: "conflict" },
       );
       result.attempts.push(...attempts);
       const remaining = filesWithConflictMarkers(wt.dir, merged.conflicts);
@@ -221,7 +223,7 @@ export async function crossReview(
 ): Promise<Review | null> {
   const { config, classification, ctx, settings, log } = env;
   const used = new Set(input.implementers.map(routeProvider));
-  const all = planRoutes({ taskType: "review", risk: classification.risk }, config, { isCoolingDown: (id) => env.state.isCoolingDown(id) });
+  const all = planRoutes({ taskType: "review", risk: classification.risk }, config, { isCoolingDown: (id) => env.state.isUnavailable(id) });
   const other = all.filter((r) => !used.has(routeProvider(r)));
   const routes = other.length ? other : all;
   if (!routes.length) return null;
@@ -232,6 +234,8 @@ export async function crossReview(
     env.executors,
     env.state,
     (line) => log(`[검토] ${line}`),
+    undefined,
+    { issue: env.issue.identifier ?? env.issue.id, purpose: "review" },
   );
   const last = attempts.at(-1);
   return last?.outcome.ok

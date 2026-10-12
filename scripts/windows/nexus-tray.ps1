@@ -1,0 +1,191 @@
+﻿# Nexus 트레이 실행기 (Windows PowerShell 5.1 이상)
+# Paperclip과 Nexus 설정 화면을 창 없이 켜 두고, 작업 표시줄 오른쪽 아래 아이콘으로 관리합니다.
+# 보통은 scripts\nexus-tray.cmd 를 두 번 눌러 실행하세요.
+param(
+  [int]$PaperclipPort = 3100,
+  [int]$SettingsPort = 3200,
+  [switch]$NoPaperclip
+)
+
+$ErrorActionPreference = "Stop"
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+
+# 이미 켜져 있으면 하나만 둔다.
+$created = $false
+$mutex = New-Object System.Threading.Mutex($true, "Local\NexusTray", [ref]$created)
+if (-not $created) {
+  [System.Windows.Forms.MessageBox]::Show("Nexus가 이미 켜져 있어요. 화면 오른쪽 아래 작업 표시줄의 N 아이콘을 눌러 주세요.", "Nexus") | Out-Null
+  exit 0
+}
+
+$Repo = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
+$DataDir = if ($env:NEXUS_HOME) { $env:NEXUS_HOME } else { Join-Path $env:LOCALAPPDATA "Nexus" }
+$LogDir = Join-Path $DataDir "logs"
+New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
+$PaperclipUrl = "http://localhost:$PaperclipPort"
+$SettingsUrl = "http://127.0.0.1:$SettingsPort/"
+$StartupLink = Join-Path ([Environment]::GetFolderPath("Startup")) "Nexus.lnk"
+$DesktopLink = Join-Path ([Environment]::GetFolderPath("Desktop")) "Nexus.lnk"
+
+function Test-Port([int]$port) {
+  $client = New-Object System.Net.Sockets.TcpClient
+  try {
+    $task = $client.ConnectAsync("127.0.0.1", $port)
+    return ($task.Wait(300) -and $client.Connected)
+  } catch { return $false } finally { $client.Close() }
+}
+
+# 서비스 하나: 이름, 포트, 실행 명령, 우리가 띄운 프로세스, 최근 재시작 시각
+function New-NexusService($name, $port, $command, $log) {
+  return [pscustomobject]@{ Name = $name; Port = $port; Command = $command; Log = $log; Process = $null; Restarts = @(); Wanted = $true }
+}
+
+function Start-NexusService($svc) {
+  if (Test-Port $svc.Port) { return "already" }
+  $line = "/d /s /c `"$($svc.Command) >> `"$($svc.Log)`" 2>&1`""
+  Add-Content -Path $svc.Log -Value ("`r`n==== " + (Get-Date -Format "yyyy-MM-dd HH:mm:ss") + " 시작 ====") -Encoding UTF8
+  $svc.Process = Start-Process -FilePath "cmd.exe" -ArgumentList $line -WorkingDirectory $Repo -WindowStyle Hidden -PassThru
+  return "started"
+}
+
+function Stop-NexusService($svc) {
+  if ($svc.Process -and -not $svc.Process.HasExited) {
+    & taskkill.exe /PID $svc.Process.Id /T /F 2>&1 | Out-Null
+  }
+  $svc.Process = $null
+}
+
+$env:NEXUS_NO_BROWSER = "1"
+$env:NEXUS_SETTINGS_PORT = "$SettingsPort"
+$services = @()
+if (-not $NoPaperclip) {
+  $services += New-NexusService "Paperclip" $PaperclipPort "npx --yes paperclipai@latest run" (Join-Path $LogDir "paperclip.log")
+}
+$settingsMain = Join-Path $Repo "apps\nexus-server\dist\main.mjs"
+$services += New-NexusService "설정 화면" $SettingsPort "node scripts\build-settings.mjs && node `"$settingsMain`"" (Join-Path $LogDir "settings.log")
+
+# ---------- 아이콘 ----------
+function New-NexusIcon([System.Drawing.Color]$color) {
+  $bmp = New-Object System.Drawing.Bitmap 32, 32
+  $g = [System.Drawing.Graphics]::FromImage($bmp)
+  $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
+  $g.TextRenderingHint = [System.Drawing.Text.TextRenderingHint]::AntiAliasGridFit
+  $brush = New-Object System.Drawing.SolidBrush $color
+  $g.FillEllipse($brush, 1, 1, 30, 30)
+  $font = New-Object System.Drawing.Font("Segoe UI", 15, [System.Drawing.FontStyle]::Bold, [System.Drawing.GraphicsUnit]::Pixel)
+  $fmt = New-Object System.Drawing.StringFormat
+  $fmt.Alignment = [System.Drawing.StringAlignment]::Center
+  $fmt.LineAlignment = [System.Drawing.StringAlignment]::Center
+  $g.DrawString("N", $font, [System.Drawing.Brushes]::White, (New-Object System.Drawing.RectangleF(0, 1, 32, 32)), $fmt)
+  $g.Dispose()
+  return [System.Drawing.Icon]::FromHandle($bmp.GetHicon())
+}
+$IconOk = New-NexusIcon ([System.Drawing.Color]::FromArgb(36, 89, 214))
+$IconWait = New-NexusIcon ([System.Drawing.Color]::FromArgb(138, 90, 0))
+$IconBad = New-NexusIcon ([System.Drawing.Color]::FromArgb(179, 38, 30))
+
+$tray = New-Object System.Windows.Forms.NotifyIcon
+$tray.Icon = $IconWait
+$tray.Text = "Nexus: 켜는 중"
+$tray.Visible = $true
+
+function Notify($title, $text, $kind = "Info") {
+  $tray.BalloonTipTitle = $title
+  $tray.BalloonTipText = $text
+  $tray.BalloonTipIcon = [System.Windows.Forms.ToolTipIcon]::$kind
+  $tray.ShowBalloonTip(5000)
+}
+
+# ---------- 바로 가기 ----------
+function New-Shortcut($path) {
+  $shell = New-Object -ComObject WScript.Shell
+  $lnk = $shell.CreateShortcut($path)
+  $lnk.TargetPath = Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0\powershell.exe"
+  $lnk.Arguments = "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$PSCommandPath`""
+  $lnk.WorkingDirectory = $Repo
+  $lnk.Description = "Nexus: Paperclip과 설정 화면을 켜 둡니다"
+  $lnk.Save()
+}
+
+# ---------- 메뉴 ----------
+$menu = New-Object System.Windows.Forms.ContextMenuStrip
+function Add-Item($text, $action) {
+  $item = New-Object System.Windows.Forms.ToolStripMenuItem $text
+  $item.add_Click($action)
+  $menu.Items.Add($item) | Out-Null
+  return $item
+}
+$statusItem = New-Object System.Windows.Forms.ToolStripMenuItem "상태 확인 중..."
+$statusItem.Enabled = $false
+$menu.Items.Add($statusItem) | Out-Null
+$menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator)) | Out-Null
+if (-not $NoPaperclip) { Add-Item "Paperclip 열기" { Start-Process $PaperclipUrl } | Out-Null }
+Add-Item "Nexus 설정 열기 (사용량, 예산)" { Start-Process $SettingsUrl } | Out-Null
+Add-Item "기록(로그) 폴더 열기" { Start-Process explorer.exe $LogDir } | Out-Null
+$menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator)) | Out-Null
+Add-Item "모두 다시 시작" {
+  foreach ($s in $services) { Stop-NexusService $s; $s.Restarts = @() }
+  Start-Sleep -Milliseconds 800
+  foreach ($s in $services) { Start-NexusService $s | Out-Null }
+  Notify "Nexus" "다시 시작했어요. 잠시 뒤 화면을 열어 주세요."
+} | Out-Null
+$autoItem = Add-Item "Windows를 켤 때 자동으로 실행" {
+  if (Test-Path $StartupLink) { Remove-Item $StartupLink -Force; Notify "Nexus" "이제 Windows를 켤 때 자동으로 실행하지 않아요." }
+  else { New-Shortcut $StartupLink; Notify "Nexus" "이제 Windows를 켜면 Nexus가 자동으로 실행돼요." }
+  $autoItem.Checked = Test-Path $StartupLink
+}
+$autoItem.Checked = Test-Path $StartupLink
+Add-Item "바탕 화면에 바로 가기 만들기" { New-Shortcut $DesktopLink; Notify "Nexus" "바탕 화면에 Nexus 바로 가기를 만들었어요." } | Out-Null
+$menu.Items.Add((New-Object System.Windows.Forms.ToolStripSeparator)) | Out-Null
+Add-Item "종료" {
+  $timer.Stop()
+  foreach ($s in $services) { Stop-NexusService $s }
+  $tray.Visible = $false
+  [System.Windows.Forms.Application]::Exit()
+} | Out-Null
+$tray.ContextMenuStrip = $menu
+$tray.add_MouseDoubleClick({ if ($NoPaperclip) { Start-Process $SettingsUrl } else { Start-Process $PaperclipUrl } })
+
+# ---------- 상태 확인과 자동 재시작 ----------
+$script:announced = $false
+function Update-Status {
+  $parts = @()
+  $allUp = $true
+  foreach ($s in $services) {
+    $up = Test-Port $s.Port
+    if ($up) { $parts += "$($s.Name) 켜짐"; continue }
+    $allUp = $false
+    $ours = $s.Process -ne $null
+    if ($ours -and -not $s.Process.HasExited) { $parts += "$($s.Name) 켜는 중"; continue }
+    # 우리가 띄운 프로세스가 끝났거나 처음부터 꺼져 있으면 다시 켠다. 10분에 3번까지만.
+    $now = Get-Date
+    $s.Restarts = @($s.Restarts | Where-Object { ($now - $_).TotalMinutes -lt 10 })
+    if ($s.Restarts.Count -ge 3) { $parts += "$($s.Name) 멈춤"; continue }
+    if ($ours) { Notify "Nexus" "$($s.Name)이(가) 멈춰서 다시 켤게요. 계속 멈추면 기록 폴더의 로그를 확인해 주세요." "Warning" }
+    $s.Restarts += $now
+    Start-NexusService $s | Out-Null
+    $parts += "$($s.Name) 켜는 중"
+  }
+  $stuck = @($services | Where-Object { $_.Restarts.Count -ge 3 -and -not (Test-Port $_.Port) }).Count -gt 0
+  $tray.Icon = if ($allUp) { $IconOk } elseif ($stuck) { $IconBad } else { $IconWait }
+  $text = "Nexus: " + ($parts -join ", ")
+  $tray.Text = if ($text.Length -gt 63) { $text.Substring(0, 63) } else { $text }
+  $statusItem.Text = ($parts -join " · ")
+  if ($allUp -and -not $script:announced) {
+    $script:announced = $true
+    Notify "Nexus가 켜졌어요" "아이콘을 두 번 누르면 Paperclip이 열려요. 오른쪽 버튼을 누르면 메뉴가 나와요."
+  }
+}
+
+foreach ($s in $services) { Start-NexusService $s | Out-Null }
+$timer = New-Object System.Windows.Forms.Timer
+$timer.Interval = 5000
+$timer.add_Tick({ try { Update-Status } catch { } })
+$timer.Start()
+Update-Status
+
+$context = New-Object System.Windows.Forms.ApplicationContext
+[System.Windows.Forms.Application]::Run($context)
+$tray.Dispose()
+$mutex.ReleaseMutex()

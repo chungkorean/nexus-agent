@@ -5,7 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { parse } from "yaml";
-import { AccountState } from "@nexus/shared";
+import { AccountState, appendUsage, type UsageEntry } from "@nexus/shared";
 import { createSettingsServer, type LoginCommand, type SettingsServer } from "./server.ts";
 
 const repoConfig = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "config");
@@ -408,6 +408,54 @@ describe("settings server", () => {
     expect(res.status).toBe(200);
     expect(new AccountState(stateDir).all()).toEqual({});
     expect((await getState()).body.accounts.find((a: any) => a.id === "claude-main").cooldown).toBeNull();
+  });
+
+  it("saves monthly budgets on accounts and clears them when emptied", async () => {
+    await start();
+    const preview = await post("/api/preview", { budgets: { "claude-main": { monthlyTokenLimit: 5000000 }, "openai-main": { monthlyBudgetUsd: 20 } } });
+    expect(preview.body.sentences).toContain("Claude 개인의 월 토큰 한도: 없음 → 5,000,000개");
+    expect(preview.body.sentences).toContain("ChatGPT 계정의 월 예산: 없음 → $20");
+    expect((await post("/api/save", { budgets: { "claude-main": { monthlyTokenLimit: 5000000 }, "openai-main": { monthlyBudgetUsd: 20 } } })).status).toBe(200);
+    expect(parse(read("accounts.yaml")).accounts["openai-main"]).toMatchObject({ monthlyBudgetUsd: 20 });
+    expect(read("accounts.yaml")).toContain("# 계정 주석");
+    const acc = (await getState()).body.accounts.find((a: any) => a.id === "claude-main");
+    expect(acc.monthlyTokenLimit).toBe(5000000);
+
+    await post("/api/save", { budgets: { "openai-main": { monthlyBudgetUsd: null } } });
+    expect(parse(read("accounts.yaml")).accounts["openai-main"].monthlyBudgetUsd).toBeUndefined();
+    expect((await post("/api/save", { budgets: { "openai-main": { monthlyBudgetUsd: -1 } } })).status).toBe(400);
+    expect((await post("/api/save", { budgets: { "openai-main": { monthlyBudgetUsd: "abc" } } })).status).toBe(400);
+    expect((await post("/api/save", { budgets: { nobody: { monthlyBudgetUsd: 1 } } })).status).toBe(400);
+  });
+
+  it("reports usage by account and model, budget progress and history hints", async () => {
+    writeConfig(configDir, { accounts: ACCOUNTS.replace('label: "Claude 개인"', 'label: "Claude 개인"\n    monthlyTokenLimit: 1000') });
+    const now = new Date().toISOString();
+    const entry = (over: Partial<UsageEntry>): UsageEntry => ({
+      at: now, alias: "coder", engine: "claude-code", model: "sonnet", accountId: "claude-main", ok: true,
+      inputTokens: 100, outputTokens: 50, cachedInputTokens: 0, costUsd: 0.01, durationMs: 1000, purpose: "implement", ...over,
+    });
+    for (let i = 0; i < 6; i++) appendUsage(stateDir, entry({ ok: i < 2, errorFamily: i < 2 ? undefined : "task_failed" }));
+    for (let i = 0; i < 4; i++) appendUsage(stateDir, entry({ alias: "smart", model: "opus" }));
+    appendUsage(stateDir, entry({ alias: "reviewer", engine: "opencode", model: "openai/gpt-5", accountId: "openai-main", purpose: "review", costUsd: 0.5 }));
+    appendUsage(stateDir, entry({ at: "2000-01-01T00:00:00.000Z" }));
+    await start({ fillUser: false });
+
+    const res = await fetch(new URL("/api/usage?period=month", base));
+    const body = (await res.json()) as any;
+    expect(res.status).toBe(200);
+    expect(body.totals.runs).toBe(11);
+    const claude = body.accounts.find((a: any) => a.id === "claude-main");
+    expect(claude.totals).toMatchObject({ runs: 10, ok: 6, inputTokens: 1000, outputTokens: 500 });
+    expect(claude.budget).toMatchObject({ monthlyTokenLimit: 1000, usedTokens: 1500 });
+    expect(claude.budget.exceeded).toContain("토큰 한도");
+    expect(body.models.find((m: any) => m.alias === "reviewer")).toMatchObject({ label: "GPT", totals: { runs: 1, costUsd: 0.5 } });
+    expect(body.hints).toHaveLength(1);
+    expect(body.hints[0]).toMatchObject({ purpose: "implement", alias: "coder", better: "smart" });
+    expect(body.hints[0].text).toContain("Claude Sonnet의 성공률이 33%");
+    expect(body.recent).toHaveLength(11);
+
+    expect((await fetch(new URL("/api/usage?period=forever", base))).status).toBe(400);
   });
 
   it("reports a broken config file in Korean", async () => {
