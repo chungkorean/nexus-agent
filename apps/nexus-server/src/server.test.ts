@@ -567,6 +567,21 @@ describe("settings server", () => {
     expect(info.stale).toBe(false);
   });
 
+  it("lists where Nexus keeps files and opens only listed folders", async () => {
+    await start();
+    const data = (await (await fetch(new URL("/api/storage", base), { headers: { "X-Nexus": "1" } })).json()) as any;
+    const byKey = Object.fromEntries(data.items.map((i: any) => [i.key, i]));
+    expect(byKey.work.path).toBeNull();
+    expect(byKey.config.path).toBe(configDir);
+    expect(byKey.accounts.path).toBe(accountsDir);
+    expect(byKey.archive.path).toBe(path.join(stateDir, "archive"));
+    expect(byKey.archive.deletable).toBe("yes");
+    expect(byKey.paperclipData.deletable).toBe("no");
+    expect((await post("/api/storage/open", { key: "work" })).status).toBe(400);
+    expect((await post("/api/storage/open", { key: "../etc" })).status).toBe(400);
+    expect((await post("/api/storage/open", { key: "config" })).status).toBe(200);
+  });
+
   it("reports a broken config file in Korean", async () => {
     writeConfig(configDir, { routing: "taskTypes: [oops\n" });
     await start({ fillUser: false });

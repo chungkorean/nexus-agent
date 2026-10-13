@@ -207,6 +207,7 @@ export function createSettingsServer(opts: SettingsServerOptions): SettingsServe
     root: path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", ".."),
     viewUrl: () => viewUrl,
     adapterStatus: () => adapterSync?.status() ?? null,
+    dirs: { configDir: opts.configDir, accountsDir: opts.accountsDir },
   });
 
   function todayCost(): number {

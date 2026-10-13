@@ -1,12 +1,13 @@
 // 스튜디오(작업 기록·미디어)와 음성 비서 화면이 쓰는 API.
 import { spawn } from "node:child_process";
-import { createReadStream, statSync } from "node:fs";
+import { createReadStream, existsSync, statSync } from "node:fs";
 import type http from "node:http";
 import path from "node:path";
 import { PaperclipClient } from "@nexus/paperclip-client";
 import { archiveDir, archiveMediaPath, isArchiveId, listArchive, mediaInfo, readArchive, removeArchive, type CommandSpec } from "@nexus/shared";
 import { respond, type AssistantDeps } from "./assistant.ts";
 import { HttpError } from "./errors.ts";
+import { storageItems, storagePath, type StorageDirs } from "./storage.ts";
 import { engineReady, findWhisper, senseVoiceDir, VOICE_ENGINES, type TranscribeCommands, type VoiceEngine, LANGUAGES, readVoiceSettings, transcribe, voiceDir, WHISPER_MODELS, writeVoiceSettings, DEFAULT_WHISPER_MODEL, type ToolInstaller, type VoiceSettings } from "./voice.ts";
 
 export interface ExtrasOptions {
@@ -25,6 +26,8 @@ export interface ExtrasOptions {
   viewUrl?: () => string | null;
   /** Paperclip에 Nexus 어댑터를 저절로 설치한 결과 */
   adapterStatus?: () => unknown;
+  /** 저장 위치 안내에 보여 줄 폴더 */
+  dirs?: Omit<StorageDirs, "stateDir">;
   targets: (companyId: string | null | undefined) => Promise<{ companies: Array<{ id: string; name: string }>; agents: Array<{ id: string; name: string; adapterType: string }>; paperclipError: string | null }>;
 }
 
@@ -48,6 +51,8 @@ export function createExtras(o: ExtrasOptions) {
     const head = o.head?.();
     return Boolean(o.build && head && head !== o.build);
   };
+
+  const storageDirs = (): StorageDirs => ({ stateDir: o.stateDir, configDir: o.dirs?.configDir ?? "", accountsDir: o.dirs?.accountsDir ?? "" });
 
   function voiceState() {
     const s = readVoiceSettings(o.stateDir);
@@ -74,6 +79,8 @@ export function createExtras(o: ExtrasOptions) {
 
   const get: Record<string, (url: URL) => Promise<object> | object> = {
     "/api/info": () => ({ paperclipUrl: o.paperclipUrl, platform: process.platform, build: o.build ?? null, version: o.version ?? null, stale: isStale(), root: o.root ?? null }),
+
+    "/api/storage": () => ({ items: storageItems(storageDirs()), platform: process.platform }),
 
     "/api/archive": (url) => ({
       items: listArchive(o.stateDir, {
@@ -143,6 +150,15 @@ export function createExtras(o: ExtrasOptions) {
       if (!readArchive(o.stateDir, id)) throw new HttpError(404, "그 작업 기록이 없어요.");
       if (process.platform !== "win32") return { ok: true, message: `폴더: ${dir}` };
       spawn("explorer.exe", [dir], { detached: true, stdio: "ignore", windowsHide: false }).unref();
+      return { ok: true, message: "탐색기로 폴더를 열었어요." };
+    },
+
+    "/api/storage/open": (body) => {
+      const item = storagePath(storageDirs(), body.key);
+      if (!item?.path) throw new HttpError(400, "열 폴더를 다시 골라 주세요.");
+      if (!existsSync(item.path)) return { ok: true, message: `아직 만들어지지 않은 폴더예요: ${item.path}` };
+      if (process.platform !== "win32") return { ok: true, message: `폴더: ${item.path}` };
+      spawn("explorer.exe", [item.path], { detached: true, stdio: "ignore", windowsHide: false }).unref();
       return { ok: true, message: "탐색기로 폴더를 열었어요." };
     },
 

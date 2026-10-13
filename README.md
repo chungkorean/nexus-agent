@@ -121,6 +121,8 @@ Meta Muse는 Meta Model API(공개 미리 보기, 미국 개발자 대상)의 AP
 
 설정 파일은 `%LOCALAPPDATA%\Nexus\config`에 있습니다 (`models.yaml`, `routing.yaml`, `accounts.yaml`). 처음 화면을 열 때 기본 설정을 복사해 둡니다. 직접 고쳐도 되고, 주석에 설명이 있습니다. 직접 고칠 때 OpenCode 모델 이름은 `opencode models`로 확인한 값을 넣어야 합니다.
 
+어떤 파일이 어디에 저장되는지는 모든 화면의 위쪽 메뉴 오른쪽 "저장 위치 ?"에서 볼 수 있습니다. 마우스를 올리면 짧은 설명이, 누르면 폴더별 실제 경로와 "폴더 열기" 버튼, 지워도 되는지가 나옵니다. 최종 결과물은 Paperclip 에이전트 설정의 `cwd`(작업 폴더)에, 작업 기록·설정·계정·로그는 `%LOCALAPPDATA%\Nexus`에, Paperclip의 이슈 데이터는 `%USERPROFILE%\.paperclip`에 있습니다.
+
 ### 6. 트레이 실행기로 켜 두기
 
 매번 PowerShell 창을 열어 두는 대신 저장소 맨 위의 `Nexus.exe`를 두 번 누르세요(`scripts\nexus-tray.cmd`도 같은 트레이 실행기를 켭니다).

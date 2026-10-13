@@ -90,7 +90,9 @@ const NAV = [["/studio", "스튜디오", "studio"], ["/paperclip", "Paperclip", 
 function renderNav(active) {
   const nav = h("nav", { class: "topnav", "aria-label": "Nexus 메뉴" },
     h("a", { class: "brand", href: "/studio" }, "Nexus"),
-    NAV.map(([href, text, key]) => h("a", { class: "tab", href, "aria-current": key === active ? "page" : false }, text)));
+    NAV.map(([href, text, key]) => h("a", { class: "tab", href, "aria-current": key === active ? "page" : false }, text)),
+    h("button", { type: "button", class: "storage-q", title: STORAGE_TIP, "aria-label": "저장 위치 설명 보기", onclick: showStorage },
+      "저장 위치", h("span", { class: "q", "aria-hidden": "true" }, "?")));
   document.querySelector("main").prepend(nav);
   // 고정된 메뉴 높이만큼 다른 고정 요소(설정의 왼쪽 메뉴)와 바로 가기 위치를 내린다.
   const fit = () => document.documentElement.style.setProperty("--nav-h", nav.offsetHeight + "px");
@@ -107,3 +109,48 @@ function renderNav(active) {
   }).catch(() => {});
   return nav;
 }
+
+// ---------- 저장 위치 설명 ----------
+// 위쪽 메뉴의 "저장 위치 ?"에 마우스를 올리면 짧은 설명이, 누르면 폴더별 경로와 지워도 되는지가 보인다.
+const STORAGE_TIP = "최종 결과물은 Paperclip 에이전트에 정한 작업 폴더(cwd)에 저장돼요. 작업 기록·설정·계정·로그는 내 PC의 Nexus 폴더에 있어요. 누르면 폴더별 위치와 지워도 되는지 보여 줘요.";
+const DELETABLE = { yes: ["지워도 돼요", "ok"], careful: ["조건부", "warn"], no: ["지우면 안 돼요", "bad"] };
+
+async function showStorage() {
+  let back = $("storageBack");
+  if (!back) {
+    back = h("div", { id: "storageBack", class: "modal-back" }, h("div", { class: "modal storage", role: "dialog", "aria-modal": "true", "aria-labelledby": "storageTitle" }));
+    document.body.append(back);
+    back.addEventListener("click", (e) => { if (e.target === back) closeStorage(); });
+  }
+  const box = back.firstChild;
+  box.replaceChildren(h("h3", { id: "storageTitle" }, "저장 위치"), h("p", { class: "loading" }, "불러오는 중이에요..."));
+  back.classList.add("show");
+  document.addEventListener("keydown", storageKey);
+  let data;
+  try { data = await api("/api/storage"); } catch (e) { box.replaceChildren(h("h3", { id: "storageTitle" }, "저장 위치"), h("p", {}, e.error || "불러오지 못했어요.")); return; }
+  const win = data.platform === "win32";
+  box.replaceChildren(
+    h("h3", { id: "storageTitle" }, "저장 위치"),
+    h("p", { class: "help" }, "AI가 만든 최종 결과물은 작업 폴더에, 나머지는 이 PC의 아래 폴더에 저장돼요. 모두 내 컴퓨터에만 있고, GitHub에 올리기를 켰을 때만 결과 브랜치가 원격 저장소로 올라가요."),
+    h("ul", { class: "storage-list" }, data.items.map((it) => {
+      const [label, kind] = DELETABLE[it.deletable] || DELETABLE.no;
+      return h("li", {},
+        h("div", { class: "storage-head" }, h("strong", {}, it.title), h("span", { class: "badge " + kind, title: it.deleteNote }, label)),
+        h("p", { class: "small" }, it.desc),
+        it.path ? h("div", { class: "storage-path" }, h("code", {}, it.path),
+          h("button", { type: "button", class: "small-btn", disabled: !it.exists, title: it.exists ? "" : "아직 만들어지지 않은 폴더예요", onclick: async () => {
+            try { toast((await api("/api/storage/open", { key: it.key })).message); } catch (e) { toast(e.error, "bad"); }
+          } }, it.exists ? (win ? "폴더 열기" : "위치 보기") : "아직 없음")) : null,
+        h("p", { class: "small delete-note" }, it.deleteNote));
+    })),
+    h("div", { class: "modal-buttons" }, h("button", { type: "button", class: "primary", onclick: closeStorage }, "닫기")),
+  );
+  box.querySelector("button.primary").focus({ preventScroll: true });
+  box.scrollTop = 0;
+}
+function closeStorage() {
+  const back = $("storageBack");
+  if (back) back.classList.remove("show");
+  document.removeEventListener("keydown", storageKey);
+}
+function storageKey(e) { if (e.key === "Escape") closeStorage(); }
